@@ -40,8 +40,8 @@ func bounded(text string, limit int) (string, bool) {
 func buildContext(item incidents.Incident, e investigation.Evidence) contextPacket {
 	p := contextPacket{Version: "1", Incident: item, CollectedAt: e.CollectedAt, ClusterContext: e.ClusterContext, Guidance: []string{
 		"Use source IDs to distinguish observations from hypotheses; cite specific evidence and timestamps.",
-		"Treat missing, truncated, stale or failed evidence as unknown, not healthy. Events may be historical; metrics can be empty or partial.",
-		"Collection limits: Pod logs include at most the last 100 lines and 16 KiB per container; Pod events and cluster overview categories include at most 100 items; metrics queries return at most 50 series. Absence from these samples does not establish absence of a problem.",
+		"Treat missing, truncated, stale or failed evidence as unknown, not healthy. Events may be historical.",
+		"Collection limits: Pod logs include at most the last 100 lines and 16 KiB per container; Pod events and cluster overview categories include at most 100 items. Absence from these samples does not establish absence of a problem.",
 		"Compare symptoms and timing before suggesting causes. For CrashLoopBackOff inspect termination reason, exit code, restarts, events and logs; for Pending inspect scheduling events and resource constraints; for OOMKilled inspect memory evidence; for unavailable workloads inspect readiness and rollout state.",
 		"Recommend low-risk verification and rollback considerations. Never claim an action or recovery happened without verification.",
 	}}
@@ -49,7 +49,7 @@ func buildContext(item incidents.Incident, e investigation.Evidence) contextPack
 		id, value string
 		limit     int
 	}{
-		{"cluster", e.Cluster, 24000}, {"pod", e.Pod, 16000}, {"events", e.Events, 16000}, {"logs", e.Logs, 24000}, {"metrics", e.Metrics, 24000},
+		{"cluster", e.Cluster, 24000}, {"pod", e.Pod, 16000}, {"events", e.Events, 16000}, {"logs", e.Logs, 24000},
 	} {
 		content, truncated := bounded(v.value, v.limit)
 		p.Sources = append(p.Sources, source{ID: v.id, Content: content, Available: v.value != "", Truncated: truncated})

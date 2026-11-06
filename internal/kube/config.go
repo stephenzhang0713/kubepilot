@@ -32,8 +32,13 @@ type ConfigStatus struct {
 }
 
 func NewManager() *Manager {
+	return NewManagerForContext("")
+}
+
+// NewManagerForContext loads the requested context without falling back to another cluster.
+func NewManagerForContext(context string) *Manager {
 	m := &Manager{}
-	_ = m.ConfigureLocal("")
+	_ = m.ConfigureLocal(context)
 	return m
 }
 func (m *Manager) Status() ConfigStatus {
@@ -46,7 +51,7 @@ func (m *Manager) Collect(ctx context.Context, namespace, pod string) (investiga
 	collector := m.collector
 	m.mu.RUnlock()
 	if collector == nil {
-		return investigation.Evidence{}, errors.New("no Kubernetes configuration; configure it in the web console")
+		return investigation.Evidence{}, errors.New("no Kubernetes configuration; select a local kubeconfig context in KubePilot")
 	}
 	return collector.Collect(ctx, namespace, pod)
 }
@@ -86,7 +91,7 @@ func (m *Manager) Configure(data []byte) error {
 	m.mu.Lock()
 	m.collector = &Collector{Client: client}
 	m.context = config.CurrentContext
-	m.source = "web"
+	m.source = "embedded"
 	m.revision++
 	m.mu.Unlock()
 	return nil

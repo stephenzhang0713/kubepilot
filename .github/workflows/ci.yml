@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  backend:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -17,19 +17,4 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test ./...
-
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 26
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: web/package.json
-      - run: bun install --frozen-lockfile
-      - run: bun run build
+      - run: go build ./cmd/kubepilot

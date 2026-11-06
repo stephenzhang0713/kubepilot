@@ -61,6 +61,12 @@ current-context: minikube
 	}
 	t.Setenv("KUBECONFIG", file)
 	m := NewManager()
+	if got := NewManagerForContext("missing").Status(); got.Configured {
+		t.Fatal("missing saved context must not fall back to a different cluster")
+	}
+	if got := NewManagerForContext("rancher-desktop").Status(); got.Context != "rancher-desktop" {
+		t.Fatalf("saved context: %+v", got)
+	}
 	if got := m.Status(); got.Context != "minikube" || got.Source != "local" {
 		t.Fatalf("initial status: %+v", got)
 	}

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stephenzhang0713/kubepilot/internal/audit"
 	"github.com/stephenzhang0713/kubepilot/internal/incidents"
 )
 
@@ -23,7 +22,6 @@ type Evidence struct {
 	Events         string   `json:"events"`
 	Logs           string   `json:"logs"`
 	Warnings       []string `json:"warnings"`
-	Metrics        string   `json:"metrics,omitempty"`
 }
 type Collector interface {
 	Collect(context.Context, string, string) (Evidence, error)
@@ -66,16 +64,11 @@ type Result struct {
 	Trace           []TraceEvent `json:"trace,omitempty"`
 }
 type Handler struct {
-	Audit       *audit.Journal
-	Incidents   *incidents.Store
-	Collector   Collector
-	Analyzer    Analyzer
-	mu          sync.RWMutex
-	results     map[string]Result
-	Persistence incidents.Persistence
-	Metrics     interface {
-		Collect(context.Context, incidents.Incident) (string, error)
-	}
+	Incidents *incidents.Store
+	Collector Collector
+	Analyzer  Analyzer
+	mu        sync.RWMutex
+	results   map[string]Result
 }
 
 func (h *Handler) Routes(mux *http.ServeMux) {
@@ -86,24 +79,7 @@ func (h *Handler) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/incidents/{id}/investigations", h.list)
 	mux.HandleFunc("GET /api/investigations/{id}", h.get)
 }
-func (h *Handler) Restore(p incidents.Persistence) error {
-	records, err := p.Load("investigation")
-	if err != nil {
-		return err
-	}
-	h.results = make(map[string]Result)
-	for _, data := range records {
-		var result Result
-		if err := json.Unmarshal(data, &result); err != nil {
-			return err
-		}
-		// Plans cannot safely reuse a cluster revision from a previous process.
-		result.Candidates = nil
-		h.results[result.ID] = result
-	}
-	h.Persistence = p
-	return nil
-}
+
 func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	item, ok := h.Incidents.Get(r.PathValue("id"))
 	if !ok {
@@ -139,14 +115,7 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	evidence.ClusterContext = clusterContext
 	result.Evidence = evidence
 	if err == nil {
-		if h.Metrics != nil {
-			metrics, metricsErr := h.Metrics.Collect(ctx, item)
-			if metricsErr != nil {
-				evidence.Warnings = append(evidence.Warnings, "Prometheus: "+metricsErr.Error())
-			} else {
-				evidence.Metrics = metrics
-			}
-		}
+
 		evidence.CollectedAt = time.Now().UTC().Format(time.RFC3339)
 		result.Evidence = evidence
 		if a, ok := h.Analyzer.(HarnessAnalyzer); ok {
@@ -170,24 +139,9 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	} else {
 		result.Status = "completed"
 	}
-	if h.Audit != nil {
-		if err := h.Audit.Append(audit.Event{Kind: "investigation.completed", IncidentID: item.ID, InvestigationID: result.ID, Status: result.Status}); err != nil {
-			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
-			return
-		}
-	}
+
 	h.mu.Lock()
-	if h.Persistence != nil {
-		data, marshalErr := json.Marshal(result)
-		if marshalErr == nil {
-			marshalErr = h.Persistence.Put("investigation", result.ID, data)
-		}
-		if marshalErr != nil {
-			h.mu.Unlock()
-			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
-			return
-		}
-	}
+
 	h.results[result.ID] = result
 	h.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")

@@ -172,7 +172,7 @@ func (m *Manager) Overview(ctx context.Context) (Overview, error) {
 	collector := m.collector
 	m.mu.RUnlock()
 	if collector == nil {
-		return Overview{}, errors.New("no Kubernetes configuration; configure it in the web console")
+		return Overview{}, errors.New("no Kubernetes configuration; select a local kubeconfig context in KubePilot")
 	}
 	return collector.Overview(ctx), nil
 }

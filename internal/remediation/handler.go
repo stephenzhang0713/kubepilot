@@ -12,7 +12,6 @@ import (
 	"time"
 	"uuid"
 
-	"github.com/stephenzhang0713/kubepilot/internal/audit"
 	"github.com/stephenzhang0713/kubepilot/internal/investigation"
 	"github.com/stephenzhang0713/kubepilot/internal/kube"
 )
@@ -27,7 +26,6 @@ type Plans struct {
 	items          map[string]Plan
 	Investigations *investigation.Handler
 	Runner         Runner
-	Audit          *audit.Journal
 	Enabled        bool
 }
 type Plan struct {
@@ -129,12 +127,7 @@ func (p *Plans) create(w http.ResponseWriter, r *http.Request) {
 	}
 	id := uuid.NewV7()
 	plan := Plan{ID: id.String(), InvestigationID: result.ID, IncidentID: result.IncidentID, Action: candidate.Action, Reason: candidate.Reason, Target: target, Status: "pending", CreatedAt: time.Now().UTC()}
-	if p.Audit != nil {
-		if err := p.Audit.Append(plan.event("plan.created", "pending")); err != nil {
-			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
-			return
-		}
-	}
+
 	p.mu.Lock()
 	p.items[plan.ID] = plan
 	p.mu.Unlock()
@@ -149,7 +142,7 @@ func (p *Plans) execute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !p.Enabled {
-		http.Error(w, "repair operations are disabled; set KUBEPILOT_ENABLE_REMEDIATION=true and restart the backend", http.StatusForbidden)
+		http.Error(w, "repair operations are disabled; enable remediation in Settings and restart", http.StatusForbidden)
 		return
 	}
 	var input struct {
@@ -178,13 +171,7 @@ func (p *Plans) execute(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "plan expired; create a new plan", http.StatusConflict)
 		return
 	}
-	if p.Audit != nil {
-		if err := p.Audit.Append(plan.event("restart.approved", "executing")); err != nil {
-			p.mu.Unlock()
-			http.Error(w, "audit unavailable; restart blocked", http.StatusServiceUnavailable)
-			return
-		}
-	}
+
 	plan.Target.RestartToken = plan.ID
 	plan.Status = "executing"
 	p.items[plan.ID] = plan
@@ -200,17 +187,11 @@ func (p *Plans) execute(w http.ResponseWriter, r *http.Request) {
 	} else {
 		plan.Status = "submitted"
 	}
-	auditFailed := false
-	if p.Audit != nil {
-		auditFailed = p.Audit.Append(plan.event("restart.result", plan.Status)) != nil
-	}
+
 	p.mu.Lock()
 	p.items[plan.ID] = plan
 	p.mu.Unlock()
-	if auditFailed {
-		http.Error(w, "restart outcome could not be recorded; check Deployment before retrying", http.StatusServiceUnavailable)
-		return
-	}
+
 	if errors.Is(err, context.DeadlineExceeded) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
@@ -235,12 +216,7 @@ func (p *Plans) reject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "plan already used", http.StatusConflict)
 		return
 	}
-	if p.Audit != nil {
-		if err := p.Audit.Append(plan.event("plan.rejected", "rejected")); err != nil {
-			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
-			return
-		}
-	}
+
 	plan.Status = "rejected"
 	plan.CompletedAt = time.Now().UTC()
 	p.items[plan.ID] = plan
@@ -267,18 +243,7 @@ func (p *Plans) verify(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	if p.Audit != nil {
-		status := "not_verified"
-		if evidence.Verified {
-			status = "verified"
-		}
-		event := plan.event("rollout.checked", status)
-		event.Detail = fmt.Sprintf("resourceVersion=%s generation=%d observedGeneration=%d desired=%d updated=%d ready=%d available=%d total=%d", evidence.ResourceVersion, evidence.Generation, evidence.ObservedGeneration, evidence.Desired, evidence.Updated, evidence.Ready, evidence.Available, evidence.Total)
-		if err := p.Audit.Append(event); err != nil {
-			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
-			return
-		}
-	}
+
 	p.mu.Lock()
 	current := p.items[plan.ID]
 	if current.Verification == nil || current.Verification.ObservedAt.Before(evidence.ObservedAt) {
@@ -287,8 +252,4 @@ func (p *Plans) verify(w http.ResponseWriter, r *http.Request) {
 	}
 	p.mu.Unlock()
 	respond(w, current)
-}
-
-func (p Plan) event(kind, status string) audit.Event {
-	return audit.Event{Kind: kind, Status: status, IncidentID: p.IncidentID, InvestigationID: p.InvestigationID, PlanID: p.ID, Target: p.Target.Context + ":" + p.Target.Namespace + "/" + p.Target.Name}
 }

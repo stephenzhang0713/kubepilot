@@ -1,6 +1,5 @@
+.env
+/data/
+/kubepilot
 web/node_modules/
 web/dist/
-*.tsbuildinfo
-.env
-
-/data/

@@ -1,134 +1,39 @@
 # KubePilot
 
-[English](README.md) | 简体中文
+KubePilot 是本地运行的 Kubernetes 故障定位助手：先检查集群资源并展示发现，再收集证据、使用模型分析，并在终端里追问。界面基于 Bubble Tea v2 和 Lip Gloss v2。
 
-KubePilot 是一个本地优先的 Kubernetes SRE 调查原型：通过 Web 查看集群概览，或针对集群组件、指定 Pod 创建调查，由 CloudWeGo Eino ReAct Agent 调用证据工具并生成分析。Agent 可以提出受限的 Deployment 滚动重启建议，经人工批准后执行；写操作默认关闭。
+[English](README.md)
 
-## 前提
+## 快速开始
 
-- Go 1.27、启用 CGO 的 C 编译器（用于 SQLite）、Node.js 26 和 Bun 1.4.4。
-- 可访问的 Kubernetes 集群和 kubeconfig；Pod 调查需要目标 namespace 的 `pods`、`pods/log` 的 `get` 和 `events` 的 `list` 权限。集群概览及集群调查需要对节点、Pod、事件、Deployment、DaemonSet 和 StatefulSet 的集群范围 `list` 权限；权限不足的检查项会显示为未知。
-- 支持 OpenAI Chat Completions **工具调用**的服务。默认连接本机 Ollama：`http://localhost:11434/v1`，模型 `qwen2.5:7b`。先安装并启动 Ollama，运行 `ollama pull qwen2.5:7b`。模型应支持工具调用；Mac 可本地运行，无需 NVIDIA GPU。
-
-## 本机启动（推荐）
-
-先通过 `kubectl get pod -n <namespace>` 确认上下文和 Pod，再在项目根目录运行：
+需要 Go 1.27、可访问的 Kubernetes 集群、本地 kubeconfig，以及支持工具调用的 OpenAI 兼容模型。例如启动 Ollama 后运行 `ollama pull qwen2.5:7b`。
 
 ```sh
-# 可选：设置其他兼容模型服务
-export MODEL_BASE_URL=http://localhost:11434/v1
-export MODEL_NAME=qwen2.5:7b
-export MODEL_API_KEY=ollama
-# KUBECONFIG 默认为 ~/.kube/config
-go run ./cmd/kubepilot
+go build -o kubepilot ./cmd/kubepilot
+./kubepilot
 ```
 
-另开终端：
+按 `5` 打开设置，配置模型和 kubeconfig。默认读取本地 kubeconfig 当前 context；按 `c` 或在设置中选择 context，按 `r` 刷新集群检查。更改 kubeconfig 路径后需要重启，再选择新配置中的 context。
 
-```sh
-cd web
-bun install --frozen-lockfile
-bun run dev
-```
+## 故障定位
 
-打开终端显示的 Vite 地址（默认 http://127.0.0.1:5173），点击 **Connect cluster → Local kubeconfig** 选择本机 context，或上传内嵌凭据的 kubeconfig，然后刷新集群概览，或选择集群、Pod 范围并运行调查。如果后端启动时已加载本地 kubeconfig，也可以直接使用。API 默认只监听 `127.0.0.1:8080`。如果本地配置不可用，请检查 `kubectl config current-context`，或在网页中配置。
+- `1` 集群概览：查看只读检查的资源、异常和未知状态。未知、截断或采集失败不代表健康；按 `n` 开始调查。
+- `2` 调查：按 `n` 指定集群或 Pod，采集证据并请求模型分析；选择事件并按 `Enter` 查看结果。
+- `3` 助手：先完成一次调查，再按 `Enter` 输入问题。也可在调查结果中按 `a` 打开助手。助手基于该次调查的快照和当前会话对话回答，不会自动读取新数据或执行操作。需要新证据时重新调查。
+- `4` 修复：调查有支持的建议时，可在结果中选择并准备计划。进入计划后审核，按 `a` 和 `y` 确认；`x` 拒绝，`v` 检查滚动更新。写操作默认关闭，可在设置中启用。重启 Deployment 可能影响服务；提交不代表恢复成功。
+- `5` 设置：方向键选择，`Enter` 编辑或切换，编辑时 `Ctrl+U` 清空、`Enter` 保存、`Esc` 取消。context 切换立即生效，其他设置保存后重启生效。
 
-## 定时巡检
+界面底部显示当前快捷键。调查、对话、修复计划和巡检结果仅保存在进程内，退出后消失；程序不再使用数据库或审计文件，也不接入 Prometheus 和 Alertmanager。旧版本生成的文件不会自动删除。
 
-设置 `KUBEPILOT_INSPECTION_INTERVAL=5m` 并启动后端，可在进程运行期间定时执行只读集群概览检查（最小间隔为 `1m`，默认关闭）。概览页显示最近一次巡检的状态和快照；连接失败、权限不足或结果截断不代表集群健康。切换集群配置后，旧快照不会作为当前结果展示。巡检不会自动调用模型、创建事件或执行修复；结果仅保存在内存，重启后丢失。Docker Compose 同样支持该环境变量。
+调查证据包括资源信息、事件和日志，会发送给配置的模型。模型输出是建议，不是已验证的根因；事件可能是历史记录，采集也可能不完整。修复计划有时效且只能执行一次，系统命名空间被排除，Kubernetes 身份需要适当的 RBAC 权限。
 
-## 调查上下文与过程
+## 设置与隐私
 
-每次 Agent 调查会收到版本化的上下文：事件范围、告警摘要和级别（如果提供）、集群 context、采集结束时间、Pod 归属和节点，以及按来源区分的集群、Pod、事件、日志和指标。上下文附带常见故障排查指引、缺失来源和采集警告；每个来源分别限制大小，并标注发送给模型的数据是否截断。界面中的原始证据可能比模型实际看到的内容更长。
+设置保存在系统用户配置目录的 `kubepilot/config.json`（macOS 通常为 `~/Library/Application Support/kubepilot/config.json`）。模型密钥在界面中隐藏，但以明文保存在该文件中；文件创建权限为 `0600`，请保护账户和备份。首次运行时兼容旧的模型、kubeconfig、巡检和修复环境变量作为默认值；保存的设置优先。
 
-Agent 被要求区分观察和假设、引用来源、说明信息缺口并提出验证步骤；这些要求不能保证模型结论正确。调查结果中的“调查步骤”记录证据工具和修复建议工具的调用结果，不记录模型推理或完整模型交互，也不是完整的采集过程日志。Agent 最多执行 8 步，修复仍须经过现有校验和人工批准。调查结果及证据会持久化，使用外部模型前请确认数据可发送。
-
-## 修复后的滚动更新验证
-
-批准并提交 Deployment 滚动重启后，可在修复管理中点击“检查滚动更新”。KubePilot 会重新读取目标 Deployment，核对集群连接、UID、本次重启标记、提交时的 generation、控制器观察到的 generation 和副本状态。只有预期副本数大于零且与审批时一致，更新、就绪、可用和总副本数均满足预期时，才显示滚动更新已验证。验证为一次即时检查，可再次手动检查。
-
-这只能证明 Deployment 控制器报告的滚动更新状态，不能证明业务恢复或原始故障已解决；也不提供自动回滚。修复计划及验证结果保存在后端内存，重启后丢失；操作里程碑会写入本地日志，见下文。
-
-## 操作轨迹
-
-侧栏“操作轨迹”展示事件创建、调查结束、修复计划、批准、提交结果和滚动更新检查。默认保存到后端工作目录的 `data/audit.jsonl`；可用 `KUBEPILOT_AUDIT_FILE` 指定路径。Docker Compose 使用 `audit-data` 数据卷。该文件包含目标名称和资源状态，请限制访问并做好备份；不要由多个后端进程同时写入同一个文件。
-
-审批记录必须成功写入并同步到磁盘，重启操作才会提交。如果提交后记录结果失败，请检查目标 Deployment，切勿盲目重试。日志损坏或存在不完整记录时后端拒绝启动，需要先由管理员检查处理。该日志不包含完整调查证据或审批人身份，也不具备防篡改或多用户认证功能，不应视为合规审计系统。
-
-## 本地集群
-
-对于 Minikube 或 Rancher Desktop，先启动集群，使用 `kubectl config get-contexts` 和 `kubectl get nodes` 检查。在同一台机器上启动后端后，点击 **Connect cluster → Local kubeconfig**，选择对应的 context。后端遵循 client-go 的标准配置加载规则：优先使用 `KUBECONFIG`，未设置时使用 `~/.kube/config`。要使用其他文件，请在启动后端**之前**设置 `KUBECONFIG=/path/to/config`；多个文件可按系统路径分隔符配置。运行后端的用户需要能读取所引用的证书和凭据。本地 kubeconfig 中的认证插件可能在连接时于后端机器上执行，请仅使用可信配置。
-
-对于 k3s，同样选择一个后端用户可读取的 kubeconfig 和 context。若 k3s 运行在虚拟机或其他主机上，kubeconfig 中的 API 地址必须能从后端访问，并与服务端证书匹配。不要公开或提交集群凭据。选择 context 只完成客户端配置，需刷新概览才能验证连接与权限。
-
-## Docker Compose
-
-安装并启动 Docker 服务后运行 `docker compose up --build`，打开 http://127.0.0.1:3000，通过 **Connect cluster** 配置 kubeconfig。Compose 默认通过 `host.docker.internal:11434` 连接 Mac 上的 Ollama；可以通过 `MODEL_BASE_URL`、`MODEL_NAME` 和 `MODEL_API_KEY` 环境变量修改模型设置。默认 Compose 不挂载宿主机 kubeconfig，本机 context 选项只能看到 API 容器内的文件；宿主机的 `localhost` 地址和证书路径也不会自动可用。Minikube 和 Rancher Desktop 推荐在宿主机运行后端。使用容器时需提供容器可达的 API 地址、适当挂载 kubeconfig 和引用文件，并在容器中安装所需认证插件。
-
-**网页 kubeconfig：** 上传的配置仅保存在服务端内存中，重启后清除，API 不会返回凭据。配置必须内嵌证书和凭据；不支持外部文件引用或认证插件。保存只验证配置格式，不测试集群连通性。若需要本机认证插件或外部凭据文件，请在本机运行后端并使用 `KUBECONFIG`。API 无身份认证，请仅在可信本机使用，不要公开暴露。
-
-## API
-
-- `GET /healthz`
-- `POST /api/alerts/alertmanager`：接收 Alertmanager v4 告警，需 Bearer token。
-- `GET /api/inspection`：查看定时巡检配置、最近尝试及快照。
-- `GET /api/audit`：按最新优先读取本地操作里程碑。
-- `GET /api/settings`：查看当前模型名称与修复开关，不返回 API 密钥。
-- `GET /api/remediations`、`POST /api/remediations`、`POST /api/remediations/{id}/execute`：列出、准备并明确批准一次性修复计划。
-- `GET /api/cluster/overview`：只读采集节点、kube-system Pod、Deployment、DaemonSet、StatefulSet 和警告事件；每类最多检查 100 个资源，权限不足和截断会明确标注。
-- `GET /api/kubeconfig/contexts`、`PUT /api/kubeconfig/local`：列出并选择后端标准 kubeconfig 中的 context。
-- `GET /api/kubeconfig`、`PUT /api/kubeconfig`：查看配置状态或提交 `{"kubeconfig":"..."}`；响应不会包含凭据。
-- `POST /api/incidents`：`{"title":"Crash loop","scope":"pod","namespace":"default","pod":"app"}`，或 `{"title":"Cluster health","scope":"cluster"}`
-- `GET /api/incidents`、`GET /api/incidents/{id}`
-- `POST /api/incidents/{id}/investigations`：同步运行调查，最多等待两分钟；响应中的 `status` 为 `completed` 或 `failed`。
-- `GET /api/incidents/{id}/investigations`、`GET /api/investigations/{id}`
-
-事件和调查结果保存到本地 SQLite 数据库，默认 `data/kubepilot.db`，可通过 `KUBEPILOT_DB_FILE` 更改；Compose 使用 `audit-data` 卷。数据库包含可能敏感的调查证据，请限制访问并备份。调查过程中会向配置的模型提供证据，包括日志和指标；使用外部模型前请确认数据可发送。修复计划不持久化，历史调查中的修复建议重启后不可执行。除告警入口的 token 外，API 没有用户身份认证，仅供可信本机使用，不要公开暴露。Agent 输出是建议，并非已经验证的根因。
-
-## 告警和指标接入
-
-设置 `PROMETHEUS_URL`（例如 `http://localhost:9090`），可选 `PROMETHEUS_TOKEN`，调查时会查询最近 15 分钟的只读指标：集群范围查询 `up`，Pod 范围查询容器重启次数和 CPU 使用率。缺少相应指标可能返回空结果；查询失败显示为证据警告，不代表健康。Prometheus 数据源必须与当前 Kubernetes 集群对应，且需要提供这些指标及相应标签。
-
-设置随机且保密的 `KUBEPILOT_ALERT_TOKEN` 启用告警接收，并在 Alertmanager 配置 webhook URL 为 `http://<可达的 KubePilot 地址>/api/alerts/alertmanager`，使用 `http_config.authorization.credentials` 配置同一 token（Bearer）。默认监听本机；跨主机需要安全的网络和认证代理，不能直接公开整个无用户认证的 API。Compose 可通过其 Web 端口代理该路径，但默认仅绑定本机。
-
-例如，将以下 receiver 合并到现有 Alertmanager 配置和路由中（地址需从 Alertmanager 所在环境可达）：
-
-```yaml
-receivers:
-  - name: kubepilot
-    webhook_configs:
-      - url: http://127.0.0.1:8080/api/alerts/alertmanager
-        send_resolved: true
-        http_config:
-          authorization:
-            credentials_file: /etc/alertmanager/kubepilot-token
-```
-
-该文件应只包含与 `KUBEPILOT_ALERT_TOKEN` 相同的 token，并由 Alertmanager 进程安全读取。容器内的 `127.0.0.1` 指该容器自身，请按部署环境调整地址。
-
-接收器根据 fingerprint 和 startsAt 合并重复告警，保存 firing/resolved 状态，串行自动调查新告警；有 `namespace` 和 `pod` 标签时调查该 Pod，否则调查集群。结果可在调查历史查看。队列保存在本地，进程中断后会重试未完成任务，可能产生重复调查；已开始的调查不会因告警恢复而取消。告警不会自动执行修复。请确保 Kubernetes context 与告警来源一致；当前没有多集群路由。告警会调用模型，可能产生费用。
-
-## 人工批准的修复操作
-
-Agent 可以针对集群调查中发现异常的 Deployment 提出滚动重启建议。点击 **Review plan**，在 **Repair management** 中核对集群 context、命名空间、名称、UID、资源版本、副本数和建议原因。模型没有提出受支持的建议时，不会出现可执行的修复。提出建议本身不会修改集群。
-
-写操作默认关闭。需要使用时，在启动后端或 Compose 前设置 `KUBEPILOT_ENABLE_REMEDIATION=true`。每个计划都必须由用户单独批准；Kubernetes 身份需要目标 Deployment 的 `get` 和 `update` 权限。系统命名空间被排除。计划 15 分钟过期且只能使用一次；集群连接、对象身份或版本变化后会被拒绝。执行会更新 Pod 模板的重启注解，可能影响服务可用性。**submitted** 仅表示 API 已接受更新，不代表滚动更新或服务恢复已验证；若结果为 unconfirmed，请先检查 Deployment，再决定是否继续。
-
-完整计划和执行状态保存在内存中，重启后丢失。当前没有用户认证，不要把 API 暴露给不可信用户或网络；仅在可信本地环境启用写入，并通过 Kubernetes RBAC 限制权限。模型不能直接执行集群操作。
-
-## 本地操作记录
-
-事件创建、调查完成、修复审批和结果等里程碑会追加到 `data/audit.jsonl`，可在 **Activity trace** 中查看，重启后仍然保留。设置 `KUBEPILOT_AUDIT_FILE` 可更改路径；Compose 默认使用 `audit-data` 卷。后端必须能够写入该文件；无法打开日志时不会启动，无法记录审批时会阻止修复。如果提交后的结果无法写入，应先检查 Deployment 再决定下一步。
-
-记录包含时间、状态、对象标识和修复目标等元数据，不保存完整证据或日志，也不记录用户身份；它不是防篡改审计系统，不能恢复调查或修复计划。请保护并按需备份该文件。轮转前须停止后端，因为进程会持续持有已打开的文件；损坏或末尾不完整的日志会阻止启动。
-
-## 验证
+## 开发
 
 ```sh
 go test ./...
-cd web && bun install --frozen-lockfile && bun run build
+go build ./cmd/kubepilot
 ```
-
-自动化测试使用模拟依赖，不替代对真实集群和模型的验证。采集事件或某个容器日志失败时，结果会显示警告；Pod 本身无法读取或模型调用失败时，调查状态为 `failed`。
-
-集群概览基于 Kubernetes 资源状态，不能覆盖所有故障模式；当前不会直接检查 API Server 健康端点、etcd、网络、存储、指标或外部依赖。警告事件可能是历史记录。概览没有发现异常不代表整个集群健康。
