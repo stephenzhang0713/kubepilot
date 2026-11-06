@@ -5,6 +5,7 @@ go 1.27
 require (
 	github.com/cloudwego/eino v0.9.22
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
+	github.com/mattn/go-sqlite3 v1.14.52
 	k8s.io/api v0.37.2
 	k8s.io/apimachinery v0.37.2
 	k8s.io/client-go v0.37.2

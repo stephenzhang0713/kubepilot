@@ -1,6 +1,12 @@
 export type Language='zh'|'en';
 export type Theme='dark'|'light';
 const translations:Record<string,string> = {
+  "Queued": "等待调查",
+  "firing": "告警中",
+  "resolved": "已恢复",
+  "metrics": "指标",
+  "Review saved investigations, including alerts.": "查看已保存的调查，包括告警触发的调查。",
+  "No investigations yet.": "暂无调查记录。",
   "Scheduled inspection": "定时巡检",
   "Read-only cluster checks run while the backend is running.": "后端运行期间定时执行只读集群检查。",
   "Scheduled inspection is disabled.": "定时巡检未启用。",

@@ -6,7 +6,7 @@ KubePilot 是一个本地优先的 Kubernetes SRE 调查原型：通过 Web 查�
 
 ## 前提
 
-- Go 1.27、Node.js 22+ 和 npm。
+- Go 1.27、启用 CGO 的 C 编译器（用于 SQLite）、Node.js 22+ 和 npm。
 - 可访问的 Kubernetes 集群和 kubeconfig；Pod 调查需要目标 namespace 的 `pods`、`pods/log` 的 `get` 和 `events` 的 `list` 权限。集群概览及集群调查需要对节点、Pod、事件、Deployment、DaemonSet 和 StatefulSet 的集群范围 `list` 权限；权限不足的检查项会显示为未知。
 - 支持 OpenAI Chat Completions **工具调用**的服务。默认连接本机 Ollama：`http://localhost:11434/v1`，模型 `qwen2.5:7b`。先安装并启动 Ollama，运行 `ollama pull qwen2.5:7b`。模型应支持工具调用；Mac 可本地运行，无需 NVIDIA GPU。
 
@@ -41,7 +41,7 @@ npm run dev
 
 批准并提交 Deployment 滚动重启后，可在修复管理中点击“检查滚动更新”。KubePilot 会重新读取目标 Deployment，核对集群连接、UID、本次重启标记、提交时的 generation、控制器观察到的 generation 和副本状态。只有预期副本数大于零且与审批时一致，更新、就绪、可用和总副本数均满足预期时，才显示滚动更新已验证。验证为一次即时检查，可再次手动检查。
 
-这只能证明 Deployment 控制器报告的滚动更新状态，不能证明业务恢复或原始故障已解决；也不提供自动回滚。完整的事件、修复计划及验证结果保存在后端内存，重启后丢失；操作里程碑会写入本地日志，见下文。
+这只能证明 Deployment 控制器报告的滚动更新状态，不能证明业务恢复或原始故障已解决；也不提供自动回滚。修复计划及验证结果保存在后端内存，重启后丢失；操作里程碑会写入本地日志，见下文。
 
 ## 操作轨迹
 
@@ -64,6 +64,7 @@ npm run dev
 ## API
 
 - `GET /healthz`
+- `POST /api/alerts/alertmanager`：接收 Alertmanager v4 告警，需 Bearer token。
 - `GET /api/inspection`：查看定时巡检配置、最近尝试及快照。
 - `GET /api/audit`：按最新优先读取本地操作里程碑。
 - `GET /api/settings`：查看当前模型名称与修复开关，不返回 API 密钥。
@@ -76,7 +77,15 @@ npm run dev
 - `POST /api/incidents/{id}/investigations`：同步运行调查，最多等待两分钟；响应中的 `status` 为 `completed` 或 `failed`。
 - `GET /api/incidents/{id}/investigations`、`GET /api/investigations/{id}`
 
-事件和调查保存在进程内存中，重启后丢失。调查过程中会向配置的模型提供采集到的集群或 Pod 证据，包括事件和可能包含的日志；日志可能包含敏感信息，使用外部模型前请自行确认数据可发送。API 没有身份认证，适合本机使用；不要直接暴露到公共网络。Agent 输出是建议，并非已经验证的根因。
+事件和调查结果保存到本地 SQLite 数据库，默认 `data/kubepilot.db`，可通过 `KUBEPILOT_DB_FILE` 更改；Compose 使用 `audit-data` 卷。数据库包含可能敏感的调查证据，请限制访问并备份。调查过程中会向配置的模型提供证据，包括日志和指标；使用外部模型前请确认数据可发送。修复计划不持久化，历史调查中的修复建议重启后不可执行。除告警入口的 token 外，API 没有用户身份认证，仅供可信本机使用，不要公开暴露。Agent 输出是建议，并非已经验证的根因。
+
+## 告警和指标接入
+
+设置 `PROMETHEUS_URL`（例如 `http://localhost:9090`），可选 `PROMETHEUS_TOKEN`，调查时会查询最近 15 分钟的只读指标：集群范围查询 `up`，Pod 范围查询容器重启次数和 CPU 使用率。缺少相应指标可能返回空结果；查询失败显示为证据警告，不代表健康。Prometheus 数据源必须与当前 Kubernetes 集群对应，且需要提供这些指标及相应标签。
+
+设置随机且保密的 `KUBEPILOT_ALERT_TOKEN` 启用告警接收，并在 Alertmanager 配置 webhook URL 为 `http://<可达的 KubePilot 地址>/api/alerts/alertmanager`，使用 `http_config.authorization.credentials` 配置同一 token（Bearer）。默认监听本机；跨主机需要安全的网络和认证代理，不能直接公开整个无用户认证的 API。Compose 可通过其 Web 端口代理该路径，但默认仅绑定本机。
+
+接收器根据 fingerprint 和 startsAt 合并重复告警，保存 firing/resolved 状态，串行自动调查新告警；有 `namespace` 和 `pod` 标签时调查该 Pod，否则调查集群。结果可在调查历史查看。队列保存在本地，进程中断后会重试未完成任务，可能产生重复调查；已开始的调查不会因告警恢复而取消。告警不会自动执行修复。请确保 Kubernetes context 与告警来源一致；当前没有多集群路由。告警会调用模型，可能产生费用。
 
 ## 人工批准的修复操作
 

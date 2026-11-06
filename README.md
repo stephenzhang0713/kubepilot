@@ -6,7 +6,7 @@ KubePilot is a local-first Kubernetes SRE investigation prototype. Inspect a clu
 
 ## Prerequisites
 
-- Go 1.27, Node.js 22+, and npm.
+- Go 1.27, a C compiler with CGO enabled (for SQLite), Node.js 22+, and npm.
 - An accessible Kubernetes cluster and a kubeconfig. Pod investigations need `get` on `pods` and `pods/log` and `list` on `events` in the target namespace. Cluster snapshots and investigations need cluster-wide `list` access to nodes, Pods, events, Deployments, DaemonSets and StatefulSets. Restricted access is reported per section as unknown.
 - A service that supports **tool calling** through the OpenAI Chat Completions API. By default, KubePilot connects to Ollama at `http://localhost:11434/v1` using `qwen2.5:7b`. Install and start Ollama, then run `ollama pull qwen2.5:7b`. Choose a model that supports tool calling. It can run locally on a Mac without an NVIDIA GPU.
 
@@ -41,7 +41,7 @@ Set `KUBEPILOT_INSPECTION_INTERVAL=5m` before starting the backend to periodical
 
 After approving and submitting a Deployment restart, use **Check rollout** in repair management to fetch fresh Deployment status. Verification checks the cluster connection, UID, restart marker, submitted generation, observed generation, and replica counts. It requires a positive replica count unchanged since approval, with updated, ready, available, and total replicas matching the desired count. This is a point-in-time check and can be repeated.
 
-This verifies only the Deployment controller's rollout status, not application health or resolution of the original incident. There is no automatic rollback. Full incidents, plans, and verification results are held in backend memory and lost on restart; operation milestones are recorded locally as described below.
+This verifies only the Deployment controller's rollout status, not application health or resolution of the original incident. There is no automatic rollback. Plans and verification results are held in backend memory and lost on restart; operation milestones are recorded locally as described below.
 
 ## Activity trace
 
@@ -64,6 +64,7 @@ Install and start Docker, then run `docker compose up --build` and open http://1
 ## API
 
 - `GET /healthz`
+- `POST /api/alerts/alertmanager`: receive Alertmanager v4 notifications using a Bearer token.
 - `GET /api/inspection`: get scheduled inspection configuration, latest attempt and snapshot.
 - `GET /api/audit`: list local operation milestones, newest first.
 - `GET /api/settings`: current model name and repair enablement (no API key).
@@ -76,7 +77,15 @@ Install and start Docker, then run `docker compose up --build` and open http://1
 - `POST /api/incidents/{id}/investigations`: runs an investigation synchronously for up to two minutes; the response `status` is `completed` or `failed`.
 - `GET /api/incidents/{id}/investigations` and `GET /api/investigations/{id}`
 
-Incidents and investigations are stored in process memory and are lost on restart. Collected cluster or Pod evidence, including events and potentially logs, is sent to the configured model during an investigation. Logs may contain sensitive information; confirm that data can be sent before using an external model. The API has no authentication and is intended for local use; do not expose it directly to the public internet. Agent output is advice, not a verified root cause.
+Incidents and investigations are stored in SQLite at `data/kubepilot.db` by default; set `KUBEPILOT_DB_FILE` to change the path. Compose uses the `audit-data` volume. The database can contain sensitive evidence: restrict access and back it up. Evidence, including logs and metrics, is sent to the configured model. Repair plans are not persisted and proposals from restored investigations cannot be executed. Apart from the alert receiver's token, the API has no user authentication; keep it on a trusted local machine. Agent output is advice, not a verified root cause.
+
+## Alerts and metrics
+
+Set `PROMETHEUS_URL` (for example `http://localhost:9090`) and optionally `PROMETHEUS_TOKEN` to collect read-only metrics over the last 15 minutes during investigations. Cluster investigations query `up`; Pod investigations query container restarts and CPU usage. Missing metrics can produce empty results; query failures appear as evidence warnings. Use a Prometheus server for the active cluster with the required metrics and labels.
+
+Set a secret `KUBEPILOT_ALERT_TOKEN` to enable the Alertmanager v4 webhook at `/api/alerts/alertmanager`. Configure Alertmanager `http_config.authorization.credentials` with the same Bearer token. The server listens locally by default. Remote access requires a secured network and authentication proxy; do not expose the rest of the unauthenticated API. The Compose web port proxies this path and is bound to localhost by default.
+
+The receiver deduplicates occurrences by fingerprint and start time, stores firing/resolved status, and serially starts investigations. Alerts with both `namespace` and `pod` labels target that Pod; others target the cluster. Pending work survives restarts and can be retried, so interruption may produce duplicate investigations. Resolution does not cancel a running investigation. Alerts never execute repairs. Ensure the active Kubernetes context matches the alert source; multi-cluster routing is not supported. Investigations invoke the model and may incur costs.
 
 ## Approved repair operations
 
