@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 	"unicode"
@@ -22,6 +23,35 @@ var (
 	bad       = lipgloss.NewStyle().Foreground(lipgloss.Color("#FB7185"))
 )
 
+func pageColor(p page) color.Color {
+	switch p {
+	case overviewPage:
+		return colorBlue
+	case investigationsPage:
+		return colorViolet
+	case chatPage:
+		return colorCyan
+	case repairsPage:
+		return colorAmber
+	case settingsPage:
+		return colorRose
+	default:
+		return colorBlue
+	}
+}
+func styledHelp(help string) string {
+	parts := strings.Split(help, "  ·  ")
+	for i, part := range parts {
+		key, rest, ok := strings.Cut(part, " ")
+		if ok {
+			parts[i] = dashCyan.Render(key) + dashDim.Render(" "+rest)
+		} else {
+			parts[i] = dashDim.Render(part)
+		}
+	}
+	return strings.Join(parts, dashDim.Render("  ·  "))
+}
+
 // clean prevents cluster and model output from sending terminal control sequences.
 func clean(s string) string {
 	return strings.Map(func(r rune) rune {
@@ -41,9 +71,9 @@ func state(s string) string {
 	switch strings.ToLower(s) {
 	case "ok", "completed", "verified":
 		return good.Render(strings.ToUpper(s))
-	case "attention", "pending", "submitted":
+	case "attention", "pending", "submitted", "unknown":
 		return warning.Render(strings.ToUpper(s))
-	case "unknown", "failed", "error":
+	case "failed", "error":
 		return bad.Render(strings.ToUpper(s))
 	default:
 		return muted.Render(strings.ToUpper(s))
@@ -51,14 +81,55 @@ func state(s string) string {
 }
 func (m Model) viewportHeight() int { return max(1, m.height-8) }
 func (m Model) viewportLines() []string {
-	width := max(1, m.width-6)
-	if m.page == overviewPage && m.mode == "" && m.width >= 90 && m.height >= 22 {
-		return strings.Split(m.dashboard(width), "\n")
+	available := max(1, m.width-6)
+	width := min(available, 144)
+	var text string
+	switch {
+	case m.page == overviewPage && m.mode == "" && m.width >= 90 && m.height >= 22:
+		text = m.dashboard(width)
+	case m.width >= 62 && m.height >= 18 && (m.mode == "" || (m.page == chatPage && m.mode == "chat-input")) && m.page != overviewPage:
+		text = m.workspace(width)
+	case m.width >= 90 && m.height >= 22 && m.mode != "" && m.mode != "chat-input":
+		panelWidth := min(width, 110)
+		content := styleContent(clean(ansi.Strip(m.content())))
+		wrapped := ansi.Wrap(content, panelWidth-4, "")
+		text = dashPanel(panelWidth, max(8, lipgloss.Height(wrapped)+2), wrapped)
+	default:
+		text = ansi.Wrap(styleContent(clean(ansi.Strip(m.content()))), width, "")
 	}
-	text := lipgloss.NewStyle().Width(width).Render(styleContent(clean(ansi.Strip(m.content()))))
-	return strings.Split(text, "\n")
+	lines := strings.Split(text, "\n")
+	// Keep very wide terminals readable while using the available width on laptops.
+	if available > width {
+		padding := strings.Repeat(" ", (available-width)/2)
+		for i := range lines {
+			lines[i] = padding + lines[i]
+		}
+	}
+	return lines
 }
 func (m Model) maxOffset() int { return max(0, len(m.viewportLines())-m.viewportHeight()) }
+
+func (m Model) visibleOffset(lines []string) int {
+	available := m.viewportHeight()
+	offset := min(max(0, m.offset), max(0, len(lines)-available))
+	if m.mode == "chat-input" {
+		offset = max(0, len(lines)-available)
+	}
+	if m.mode == "contexts" || (!m.manualScroll && m.mode == "" && (m.page == investigationsPage || m.page == repairsPage || m.page == settingsPage)) {
+		selectedLine := -1
+		for i, line := range lines {
+			if strings.Contains(ansi.Strip(line), "› ") {
+				selectedLine = i
+				break
+			}
+		}
+		if selectedLine < 0 {
+			selectedLine = m.selected + 3
+		}
+		offset = min(max(0, selectedLine-available+2), max(0, len(lines)-available))
+	}
+	return offset
+}
 
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
@@ -70,7 +141,7 @@ func (m Model) render() string {
 		return "KubePilot\nPlease enlarge your terminal (30 × 10 minimum)."
 	}
 	width := m.width - 4
-	brand := highlight.Render("◈  KUBEPILOT") + muted.Render("   /   SRE WORKSPACE")
+	brand := dashViolet.Render("◈") + highlight.Render("  KUBEPILOT") + muted.Render("   /   SRE WORKSPACE")
 	context := m.cluster.Context
 	if context == "" {
 		context = "not configured"
@@ -81,20 +152,29 @@ func (m Model) render() string {
 	if m.width >= 70 {
 		brand += strings.Repeat(" ", max(1, m.width-2-lipgloss.Width(brand)-lipgloss.Width(session))) + session
 	}
-	header := brand + "\n" + muted.Render("   CONTEXT  ") + dashText.Render(context) + muted.Render("    ·    MODEL  ") + dashText.Render(modelName)
+	header := brand + "\n" + muted.Render("   CONTEXT  ") + dashCyan.Render(context) + muted.Render("    ·    MODEL  ") + dashRose.Render(modelName)
 
 	var tabs []string
 	for i, p := range pages {
 		label := fmt.Sprintf(" %d %s ", i+1, p)
 		if page(i) == m.page {
-			tabs = append(tabs, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0B1726")).Background(accent).Render(label))
+			tabs = append(tabs, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0B1726")).Background(pageColor(page(i))).Render(label))
 		} else {
 			tabs = append(tabs, muted.Render(label))
 		}
 	}
 	nav := strings.Join(tabs, " ")
 	if m.width < 72 {
-		nav = fmt.Sprintf("[1] [2] [3] [4] [5]  %s", pages[m.page])
+		var compact []string
+		for i := range pages {
+			label := fmt.Sprintf(" %d ", i+1)
+			if page(i) == m.page {
+				compact = append(compact, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0B1726")).Background(pageColor(page(i))).Render(label))
+			} else {
+				compact = append(compact, muted.Render(label))
+			}
+		}
+		nav = strings.Join(compact, " ") + " " + lipgloss.NewStyle().Bold(true).Foreground(pageColor(m.page)).Render(pages[m.page])
 	}
 	var headerLines []string
 	for line := range strings.SplitSeq(header, "\n") {
@@ -104,13 +184,7 @@ func (m Model) render() string {
 	nav = ansi.Truncate(nav, m.width-2, "…")
 	lines := m.viewportLines()
 	available := m.viewportHeight()
-	offset := min(max(0, m.offset), max(0, len(lines)-available))
-	if m.mode == "chat-input" {
-		offset = max(0, len(lines)-available)
-	}
-	if m.mode == "contexts" || (m.mode == "" && (m.page == investigationsPage || m.page == repairsPage || m.page == settingsPage)) {
-		offset = min(max(0, m.selected-available+3), max(0, len(lines)-available))
-	}
+	offset := m.visibleOffset(lines)
 	end := min(len(lines), offset+available)
 	body := strings.Join(lines[offset:end], "\n")
 	body = lipgloss.NewStyle().Width(width).Height(available).Padding(0, 1).Render(body)
@@ -124,8 +198,10 @@ func (m Model) render() string {
 	}
 	if m.statusError {
 		status = bad.Render(clean(status))
+	} else if m.busy {
+		status = dashCyan.Render(clean(status))
 	} else {
-		status = muted.Render(clean(status))
+		status = dashDim.Render(clean(status))
 	}
 	help := "1–5 pages  ·  n investigate  ·  r refresh  ·  c context  ·  q quit"
 	switch m.mode {
@@ -145,19 +221,19 @@ func (m Model) render() string {
 		help = "↑/↓ scroll  ·  a approve  ·  x reject  ·  v verify  ·  esc back"
 	default:
 		if m.page == chatPage {
-			help = "enter ask  ·  ↑/↓ scroll  ·  1–5 switch  ·  q quit"
+			help = "enter ask  ·  n investigate  ·  ↑/↓ scroll  ·  q quit"
 		}
 		if m.page == settingsPage {
-			help = "↑/↓ select  ·  enter edit / toggle  ·  c context  ·  q quit"
+			help = "↑/↓ select  ·  enter edit  ·  pgup/pgdn scroll  ·  q quit"
 		}
 		if m.page == investigationsPage {
-			help = "n new investigation  ·  ↑/↓ select  ·  enter open  ·  r refresh  ·  q quit"
+			help = "n new  ·  ↑/↓ select  ·  enter open  ·  pgup/pgdn scroll  ·  q quit"
 		}
 		if m.page == repairsPage {
-			help = "↑/↓ select  ·  enter review  ·  r refresh  ·  q quit"
+			help = "↑/↓ select  ·  enter review  ·  pgup/pgdn scroll  ·  q quit"
 		}
 	}
-	return lipgloss.NewStyle().Padding(0, 1).Render(header + "\n" + nav + "\n" + body + "\n" + ansi.Truncate(status, m.width-2, "…") + "\n" + muted.Render(ansi.Truncate(help, m.width-2, "…")))
+	return lipgloss.NewStyle().Padding(0, 1).Render(header + "\n" + nav + "\n" + body + "\n" + ansi.Truncate(status, m.width-2, "…") + "\n" + ansi.Truncate(styledHelp(help), m.width-2, "…"))
 }
 func (m Model) content() string {
 	var b strings.Builder
@@ -266,16 +342,7 @@ func (m Model) content() string {
 			b.WriteString("     ╭─────────╮\n     │  ◈  ◈  │    No cluster snapshot yet\n     │    ◈    │    c  choose a context\n     ╰────┬────╯    r  run read-only checks\n          ╰───────  n  start an investigation")
 			break
 		}
-		attention, unknown, checked := 0, 0, 0
-		for _, section := range m.overview.Sections {
-			checked += section.Checked
-			switch section.State {
-			case "attention":
-				attention++
-			case "unknown":
-				unknown++
-			}
-		}
+		checked, attention, unknown := countStates(m.overview.Sections)
 		if m.width >= 78 {
 			fmt.Fprintf(&b, "   ╭──────────────╮   ╭──────────────╮   ╭──────────────╮\n   │  ◉  %-8d │   │  !  %-8d │   │  ?  %-8d │\n   │  CHECKED     │   │  ATTN GROUPS │   │  UNKNOWN GRP │\n   ╰──────────────╯   ╰──────────────╯   ╰──────────────╯\n\n", checked, attention, unknown)
 		} else {
@@ -401,10 +468,14 @@ func styleContent(content string) string {
 			lines[i] = muted.Render(line)
 		case strings.HasPrefix(trim, "› "):
 			lines[i] = highlight.Render(line)
-		case strings.HasPrefix(trim, "▲"):
+		case trim == "ERROR" || strings.HasPrefix(trim, "ERROR "):
+			lines[i] = bad.Render(line)
+		case strings.HasPrefix(trim, "▲") || strings.HasPrefix(trim, "WARNING") || strings.HasPrefix(trim, "CONFIRM:"):
 			lines[i] = warning.Render(line)
 		case strings.HasPrefix(trim, "?"):
-			lines[i] = bad.Render(line)
+			lines[i] = warning.Render(line)
+		case trim == "ANALYSIS" || trim == "CLUSTER" || trim == "POD" || trim == "EVENTS" || trim == "LOGS" || strings.HasPrefix(trim, "PROPOSALS"):
+			lines[i] = dashViolet.Render(line)
 		case strings.HasPrefix(trim, "●") || strings.HasPrefix(trim, "✦"):
 			lines[i] = highlight.Render(line)
 		case strings.HasPrefix(trim, "╭") || strings.HasPrefix(trim, "╰"):

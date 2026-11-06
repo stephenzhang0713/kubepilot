@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -10,20 +11,38 @@ import (
 )
 
 var (
-	dashText   = lipgloss.NewStyle().Foreground(lipgloss.Color("#E2EAF4"))
-	dashDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("#8495AA"))
-	dashBorder = lipgloss.Color("#384B63")
-	dashAccent = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#80CEFA"))
-	dashGreen  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#88DCC0"))
-	dashAmber  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F6C783"))
-	dashRed    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F28B9D"))
+	dashText     = lipgloss.NewStyle().Foreground(lipgloss.Color("#E2EAF4"))
+	dashDim      = lipgloss.NewStyle().Foreground(lipgloss.Color("#8495AA"))
+	dashBorder   = lipgloss.Color("#405671")
+	colorBlue    = lipgloss.Color("#7CC8FF")
+	colorViolet  = lipgloss.Color("#C3ACFF")
+	colorCyan    = lipgloss.Color("#6DE1D4")
+	colorRose    = lipgloss.Color("#F4ACDF")
+	colorAmber   = lipgloss.Color("#FFD08A")
+	colorSlate   = lipgloss.Color("#59718C")
+	dashViolet   = lipgloss.NewStyle().Bold(true).Foreground(colorViolet)
+	dashCyan     = lipgloss.NewStyle().Bold(true).Foreground(colorCyan)
+	dashRose     = lipgloss.NewStyle().Bold(true).Foreground(colorRose)
+	dashSelected = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F2F6FF")).Background(lipgloss.Color("#263B59"))
+	dashAccent   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#80CEFA"))
+	dashGreen    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#88DCC0"))
+	dashAmber    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F6C783"))
+	dashRed      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F28B9D"))
 )
 
 // safeText ensures Kubernetes data cannot inject terminal control sequences.
 func safeText(s string) string { return clean(ansi.Strip(s)) }
 
 func dashPanel(width, height int, content string) string {
-	return lipgloss.NewStyle().Width(width).Height(height-2).Padding(0, 1).Border(lipgloss.RoundedBorder()).BorderForeground(dashBorder).Render(content)
+	return dashPanelColor(width, height, content, dashBorder)
+}
+func dashPanelColor(width, height int, content string, border color.Color) string {
+	style := lipgloss.NewStyle().Width(width).Padding(0, 1).Border(lipgloss.RoundedBorder()).BorderForeground(border)
+	panel := style.Render(content)
+	if missing := height - lipgloss.Height(panel); missing > 0 {
+		panel = style.Render(content + strings.Repeat("\n ", missing))
+	}
+	return panel
 }
 func countStates(sections []kube.Section) (checked, attention, unknown int) {
 	for _, s := range sections {
@@ -73,9 +92,17 @@ func (m Model) dashboard(width int) string {
 	if unknown > 0 {
 		metrics[2].style = dashAmber
 	}
+	borders := []color.Color{colorBlue, colorSlate, colorSlate}
+	if attention > 0 {
+		borders[1] = lipgloss.Color("#F28B9D")
+	}
+	if unknown > 0 {
+		borders[2] = colorAmber
+	}
 	cards := make([]string, 0, 3)
 	for i, v := range metrics {
-		cards = append(cards, dashPanel(widths[i], 5, strings.Join([]string{dashDim.Render(v.label), v.style.Render(v.value), dashDim.Render(v.note)}, "\n")))
+		label := lipgloss.NewStyle().Bold(true).Foreground(borders[i]).Render(v.label)
+		cards = append(cards, dashPanelColor(widths[i], 5, strings.Join([]string{label, v.style.Render(v.value), dashDim.Render(v.note)}, "\n"), borders[i]))
 	}
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, cards[0], strings.Repeat(" ", gap), cards[1], strings.Repeat(" ", gap), cards[2]) + "\n\n")
 	leftWidth := max(36, (width-gap)*55/100)
@@ -90,7 +117,7 @@ func (m Model) dashboard(width int) string {
 			symbol, statusStyle = "?", dashAmber
 		}
 		label := ansi.Truncate(safeText(strings.ToUpper(section.Name)), 19, "…")
-		label = fmt.Sprintf("%-19s", label)
+		label = fitCell(label, 19)
 		left = append(left, fmt.Sprintf("%s  %s %s  %s", statusStyle.Render(symbol), dashText.Render(label), statusStyle.Render(fmt.Sprintf("%-10s", strings.ToUpper(section.State))), dashText.Render(fmt.Sprint(section.Checked))))
 		if section.Error != "" {
 			findings = append(findings, dashAmber.Render("?  "+safeText(section.Name)+" · unavailable"), safeText(section.Error), "")
@@ -102,16 +129,16 @@ func (m Model) dashboard(width int) string {
 			findings = append(findings, dashRed.Render("▲  "+safeText(finding.Resource)), safeText(finding.Detail), "")
 		}
 	}
-	right := []string{dashAccent.Render("FINDINGS & GAPS"), dashDim.Render("Observed in this snapshot"), dashDim.Render(strings.Repeat("─", max(1, rightWidth-4)))}
+	right := []string{dashViolet.Render("FINDINGS & GAPS"), dashDim.Render("Observed in this snapshot"), dashDim.Render(strings.Repeat("─", max(1, rightWidth-4)))}
 	if len(findings) == 0 {
 		right = append(right, "", dashGreen.Render("✓  No findings in sampled resources"), "", dashDim.Render("Checks cover selected Kubernetes resources."), dashDim.Render("A clean snapshot is not a health guarantee."))
 	} else {
 		right = append(right, findings...)
 	}
-	leftText := lipgloss.NewStyle().Width(leftWidth - 4).Render(strings.Join(left, "\n"))
-	rightText := lipgloss.NewStyle().Width(rightWidth - 4).Render(strings.Join(right, "\n"))
+	leftText := ansi.Wrap(strings.Join(left, "\n"), leftWidth-4, "")
+	rightText := ansi.Wrap(strings.Join(right, "\n"), rightWidth-4, "")
 	panelHeight := max(12, max(lipgloss.Height(leftText), lipgloss.Height(rightText))+2)
-	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, dashPanel(leftWidth, panelHeight, leftText), strings.Repeat(" ", gap), dashPanel(rightWidth, panelHeight, rightText)))
-	b.WriteString("\n\n" + dashDim.Render("NEXT  ") + dashText.Render("n  Investigate") + dashDim.Render("   ·   ") + dashText.Render("r  Refresh snapshot") + dashDim.Render("   ·   ") + dashText.Render("c  Switch context"))
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, dashPanelColor(leftWidth, panelHeight, leftText, colorBlue), strings.Repeat(" ", gap), dashPanelColor(rightWidth, panelHeight, rightText, colorViolet)))
+	b.WriteString("\n\n" + dashDim.Render("NEXT  ") + dashViolet.Render("n") + dashText.Render("  Investigate") + dashDim.Render("   ·   ") + dashCyan.Render("r") + dashText.Render("  Refresh snapshot") + dashDim.Render("   ·   ") + dashRose.Render("c") + dashText.Render("  Switch context"))
 	return b.String()
 }

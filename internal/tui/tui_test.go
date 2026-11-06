@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stephenzhang0713/kubepilot/internal/agent"
 	"github.com/stephenzhang0713/kubepilot/internal/config"
+	"github.com/stephenzhang0713/kubepilot/internal/incidents"
 	"github.com/stephenzhang0713/kubepilot/internal/investigation"
 	"net/http"
 	"os"
@@ -212,5 +216,141 @@ func TestDashboardCountsTruncatedAttentionAsGap(t *testing.T) {
 	checked, attention, unknown := countStates([]kube.Section{{State: "attention", Checked: 3, Truncated: true}, {State: "unknown", Error: "forbidden"}, {State: "ok", Checked: 1}})
 	if checked != 4 || attention != 1 || unknown != 2 {
 		t.Fatalf("unexpected counts: %d %d %d", checked, attention, unknown)
+	}
+}
+
+func TestPanelHeightAndAlignment(t *testing.T) {
+	left := dashPanel(45, 14, "heading\ncontent\nmore")
+	right := dashPanel(38, 14, "heading\nshort")
+	if lipgloss.Height(left) != 14 || lipgloss.Height(right) != 14 {
+		t.Fatalf("panel heights differ: %d, %d", lipgloss.Height(left), lipgloss.Height(right))
+	}
+	for _, line := range strings.Split(left, "\n") {
+		if lipgloss.Width(line) != 45 {
+			t.Fatalf("wrong panel width %d", lipgloss.Width(line))
+		}
+	}
+}
+
+func TestWorkspaceSelectionStaysVisible(t *testing.T) {
+	m := New(http.NewServeMux(), "test", false)
+	m.page = investigationsPage
+	m.width = 100
+	m.height = 22
+	for i := range 35 {
+		m.incidents = append(m.incidents, incidents.Incident{Title: fmt.Sprintf("incident-%02d", i), Scope: "cluster"})
+	}
+	m.selected = 34
+	if !strings.Contains(ansi.Strip(m.View().Content), "incident-34") {
+		t.Fatal("last selected investigation is not visible")
+	}
+}
+func TestWorkspaceLayoutsAndChatInput(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{90, 22}, {120, 32}, {160, 45}} {
+		m := New(http.NewServeMux(), "test", false)
+		m.width = size.width
+		m.height = size.height
+		m.result = &investigation.Result{ID: "selected", Analysis: "test"}
+		m.mode = "chat-input"
+		m.page = chatPage
+		m.chatInput = "why is this pod pending?"
+		m.turns = []agent.Turn{{Role: "assistant", Text: strings.Repeat("evidence and context ", 100)}}
+		view := m.View().Content
+		if !strings.Contains(ansi.Strip(view), "why is this pod pending?") {
+			t.Errorf("%dx%d chat input is not visible", size.width, size.height)
+		}
+		for _, line := range strings.Split(view, "\n") {
+			if lipgloss.Width(line) > size.width {
+				t.Errorf("%dx%d chat line overflows: %d", size.width, size.height, lipgloss.Width(line))
+				break
+			}
+		}
+	}
+}
+
+func TestStartInvestigationFromRepairClearsListSelection(t *testing.T) {
+	m := New(http.NewServeMux(), "test", false)
+	m.page = repairsPage
+	m.selected = 8
+	m.offset = 6
+	m = key(m, "n")
+	if m.page != investigationsPage || m.mode != "form" || m.selected != 0 || m.offset != 0 {
+		t.Fatal("new investigation should reset the selection and scroll position")
+	}
+}
+
+func TestColorsDowngradeWithoutChangingContent(t *testing.T) {
+	m := New(http.NewServeMux(), "model", false)
+	m.width = 120
+	m.height = 32
+	m.overview = &kube.Overview{Sections: []kube.Section{{Name: "nodes", State: "ok", Checked: 1}, {Name: "pods", State: "attention", Findings: []kube.Finding{{Resource: "default/api", Detail: "not ready"}}}}}
+	original := m.View().Content
+	if !strings.Contains(original, "38;2;") {
+		t.Fatal("expected RGB foreground colors in the rendered view")
+	}
+	for _, profile := range []colorprofile.Profile{colorprofile.TrueColor, colorprofile.ANSI256, colorprofile.ANSI, colorprofile.NoTTY} {
+		var output bytes.Buffer
+		writer := colorprofile.Writer{Forward: &output, Profile: profile}
+		if _, err := writer.Write([]byte(original)); err != nil {
+			t.Fatal(err)
+		}
+		if ansi.Strip(output.String()) != ansi.Strip(original) {
+			t.Fatalf("profile %s changed view content", profile)
+		}
+		if profile != colorprofile.TrueColor && strings.Contains(output.String(), "38;2;") {
+			t.Fatalf("profile %s did not downgrade RGB colors", profile)
+		}
+	}
+}
+
+func TestFitCellUsesTerminalWidth(t *testing.T) {
+	for _, text := range []string{"故障排查", "👩‍💻 team", "e\u0301xample", "a-very-long-namespace-name"} {
+		value := fitCell(text, 12)
+		if got := ansi.StringWidth(value); got != 12 {
+			t.Errorf("%q: width %d, want 12", text, got)
+		}
+	}
+}
+func TestCompactSettingsCanScrollToDetails(t *testing.T) {
+	m := New(http.NewServeMux(), "test", false)
+	m.page = settingsPage
+	m.width = 70
+	m.height = 20
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+	m = next.(Model)
+	if !strings.Contains(ansi.Strip(m.View().Content), "SETTING DETAILS") {
+		t.Fatal("settings details should be reachable with Page Down")
+	}
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = next.(Model)
+	if m.manualScroll || !strings.Contains(ansi.Strip(m.View().Content), "Model name") {
+		t.Fatal("selection should regain focus after navigation")
+	}
+}
+func TestCompactChatShowsInputOnOpen(t *testing.T) {
+	m := New(http.NewServeMux(), "test", false)
+	m.page = chatPage
+	m.width = 70
+	m.height = 20
+	m.result = &investigation.Result{ID: "i", Analysis: "test"}
+	next, _ := m.Update(response{action: "chat-page"})
+	m = next.(Model)
+	if !strings.Contains(ansi.Strip(m.View().Content), "Press Enter to ask a question") {
+		t.Fatal("chat input should be visible when opening compact chat")
+	}
+}
+func TestCompactPagesFitTerminal(t *testing.T) {
+	for _, width := range []int{62, 70, 89, 90, 150, 220} {
+		m := New(http.NewServeMux(), "test", false)
+		m.width = width
+		m.height = 24
+		for _, p := range []page{overviewPage, investigationsPage, chatPage, repairsPage, settingsPage} {
+			m.page = p
+			for _, line := range strings.Split(m.View().Content, "\n") {
+				if ansi.StringWidth(line) > width {
+					t.Fatalf("page %d width %d overflow: %d", p, width, ansi.StringWidth(line))
+				}
+			}
+		}
 	}
 }

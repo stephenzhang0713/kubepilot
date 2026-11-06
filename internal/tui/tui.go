@@ -59,6 +59,7 @@ type Model struct {
 	status           string
 	statusError      bool
 	offset, selected int
+	manualScroll     bool
 	cluster          kube.ConfigStatus
 	contexts         []string
 	overview         *kube.Overview
@@ -234,6 +235,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.chatResultID = ""
 				m.mode = ""
 				m.selected = 0
+				m.offset = 0
+				m.manualScroll = false
 				m.status = "Context selected. Refresh to verify connectivity."
 				if m.settingsPath != "" {
 					next := m.settings
@@ -318,6 +321,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Plan updated"
 			return m.refresh()
 		case "chat-page":
+			m.offset = m.maxOffset()
 			m.status = "Ask about the latest investigation"
 		case "settings":
 			err = json.Unmarshal(msg.data, &m.inspection)
@@ -361,6 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = ""
 				m.offset = 0
 				m.selected = 0
+				m.manualScroll = false
 			case "up", "k":
 				m.selected = max(0, m.selected-1)
 			case "down", "j":
@@ -439,46 +444,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "1", "2", "3", "4", "5":
 			m.page = page(key[0] - '1')
 			m.offset, m.selected = 0, 0
+			m.manualScroll = false
 			return m.refresh()
 		case "tab", "right":
 			m.page = (m.page + 1) % page(len(pages))
 			m.offset, m.selected = 0, 0
+			m.manualScroll = false
 			return m.refresh()
 		case "shift+tab", "left":
 			m.page = (m.page + page(len(pages)) - 1) % page(len(pages))
 			m.offset, m.selected = 0, 0
+			m.manualScroll = false
 			return m.refresh()
 		case "r":
 			return m.refresh()
 		case "c":
 			return m.start("contexts", "Loading contexts", "GET", "/api/kubeconfig/contexts", nil)
 		case "n":
-			if m.page == investigationsPage || m.page == overviewPage {
+			if m.page == investigationsPage || m.page == overviewPage || m.page == chatPage || m.page == repairsPage {
 				m.page = investigationsPage
+				m.selected, m.offset = 0, 0
+				m.manualScroll = false
 				m.mode = "form"
 				m.field = 0
 				m.status = ""
 			}
 		case "up", "k":
 			if m.page == investigationsPage || m.page == repairsPage || m.page == settingsPage {
+				m.manualScroll = false
 				m.selected = max(0, m.selected-1)
 			} else {
 				m.offset = max(0, m.offset-1)
 			}
 		case "down", "j":
 			if m.page == investigationsPage {
+				m.manualScroll = false
 				m.selected = min(max(0, len(m.incidents)-1), m.selected+1)
 			} else if m.page == repairsPage {
+				m.manualScroll = false
 				m.selected = min(max(0, len(m.plans)-1), m.selected+1)
 			} else if m.page == settingsPage {
+				m.manualScroll = false
 				m.selected = min(len(config.Fields)-1, m.selected+1)
 			} else {
 				m.offset = min(m.maxOffset(), m.offset+1)
 			}
 		case "pgup":
-			m.offset = max(0, m.offset-m.viewportHeight())
+			m.offset = max(0, m.visibleOffset(m.viewportLines())-m.viewportHeight())
+			m.manualScroll = true
 		case "pgdown":
-			m.offset = min(m.maxOffset(), m.offset+m.viewportHeight())
+			m.offset = min(m.maxOffset(), m.visibleOffset(m.viewportLines())+m.viewportHeight())
+			m.manualScroll = true
 		case "enter":
 			if m.page == chatPage {
 				if m.result == nil {
