@@ -6,7 +6,7 @@ KubePilot 是一个本地优先的 Kubernetes SRE 调查原型：通过 Web 查�
 
 ## 前提
 
-- Go 1.27、启用 CGO 的 C 编译器（用于 SQLite）、Node.js 22+ 和 npm。
+- Go 1.27、启用 CGO 的 C 编译器（用于 SQLite）、Node.js 26 和 Bun 1.4.4。
 - 可访问的 Kubernetes 集群和 kubeconfig；Pod 调查需要目标 namespace 的 `pods`、`pods/log` 的 `get` 和 `events` 的 `list` 权限。集群概览及集群调查需要对节点、Pod、事件、Deployment、DaemonSet 和 StatefulSet 的集群范围 `list` 权限；权限不足的检查项会显示为未知。
 - 支持 OpenAI Chat Completions **工具调用**的服务。默认连接本机 Ollama：`http://localhost:11434/v1`，模型 `qwen2.5:7b`。先安装并启动 Ollama，运行 `ollama pull qwen2.5:7b`。模型应支持工具调用；Mac 可本地运行，无需 NVIDIA GPU。
 
@@ -27,8 +27,8 @@ go run ./cmd/kubepilot
 
 ```sh
 cd web
-npm ci
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 ```
 
 打开终端显示的 Vite 地址（默认 http://127.0.0.1:5173），点击 **Connect cluster → Local kubeconfig** 选择本机 context，或上传内嵌凭据的 kubeconfig，然后刷新集群概览，或选择集群、Pod 范围并运行调查。如果后端启动时已加载本地 kubeconfig，也可以直接使用。API 默认只监听 `127.0.0.1:8080`。如果本地配置不可用，请检查 `kubectl config current-context`，或在网页中配置。
@@ -126,7 +126,7 @@ Agent 可以针对集群调查中发现异常的 Deployment 提出滚动重启�
 
 ```sh
 go test ./...
-cd web && npm ci && npm run build
+cd web && bun install --frozen-lockfile && bun run build
 ```
 
 自动化测试使用模拟依赖，不替代对真实集群和模型的验证。采集事件或某个容器日志失败时，结果会显示警告；Pod 本身无法读取或模型调用失败时，调查状态为 `failed`。

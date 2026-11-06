@@ -6,7 +6,7 @@ KubePilot is a local-first Kubernetes SRE investigation prototype. Inspect a clu
 
 ## Prerequisites
 
-- Go 1.27, a C compiler with CGO enabled (for SQLite), Node.js 22+, and npm.
+- Go 1.27, a C compiler with CGO enabled (for SQLite), Node.js 26, and Bun 1.4.4.
 - An accessible Kubernetes cluster and a kubeconfig. Pod investigations need `get` on `pods` and `pods/log` and `list` on `events` in the target namespace. Cluster snapshots and investigations need cluster-wide `list` access to nodes, Pods, events, Deployments, DaemonSets and StatefulSets. Restricted access is reported per section as unknown.
 - A service that supports **tool calling** through the OpenAI Chat Completions API. By default, KubePilot connects to Ollama at `http://localhost:11434/v1` using `qwen2.5:7b`. Install and start Ollama, then run `ollama pull qwen2.5:7b`. Choose a model that supports tool calling. It can run locally on a Mac without an NVIDIA GPU.
 
@@ -27,8 +27,8 @@ In a separate terminal, start the web interface:
 
 ```sh
 cd web
-npm ci
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 ```
 
 Open the Vite URL shown in the terminal (default: http://127.0.0.1:5173). Use **Connect cluster → Local kubeconfig** to select a context, or upload an embedded kubeconfig, then refresh the cluster snapshot or select cluster or Pod scope and run an investigation. If a local kubeconfig was loaded at startup, you can also use it directly. The API listens on `127.0.0.1:8080` by default. If the local configuration is unavailable, check `kubectl config current-context` or configure it in the browser.
@@ -126,7 +126,7 @@ The journal contains metadata such as timestamps, status, identifiers and repair
 
 ```sh
 go test ./...
-cd web && npm ci && npm run build
+cd web && bun install --frozen-lockfile && bun run build
 ```
 
 Automated tests use simulated dependencies and do not replace validation against a real cluster and model. The result displays a warning if events or a container's logs cannot be collected. If the Pod cannot be read or the model call fails, the investigation status is `failed`.
