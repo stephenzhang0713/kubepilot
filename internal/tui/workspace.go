@@ -34,7 +34,7 @@ func listColumns(width int) (int, int, bool) {
 	title := max(10, available*3/5)
 	return title, max(8, available-title), date
 }
-func sideBySide(width int, left, right []string, sectionColor color.Color, primaryLast bool) string {
+func sideBySide(width, minHeight int, left, right []string, sectionColor color.Color, primaryLast bool) string {
 	if width < 84 {
 		leftText, rightText := wrapPanelText(width, left), wrapPanelText(width, right)
 		leftPanel := dashPanelColor(width, max(8, lipgloss.Height(leftText)+2), leftText, sectionColor)
@@ -48,12 +48,12 @@ func sideBySide(width int, left, right []string, sectionColor color.Color, prima
 	leftWidth := (width - gap) * 57 / 100
 	rightWidth := width - gap - leftWidth
 	leftText, rightText := wrapPanelText(leftWidth, left), wrapPanelText(rightWidth, right)
-	height := max(14, max(lipgloss.Height(leftText), lipgloss.Height(rightText))+2)
+	height := max(minHeight, max(14, max(lipgloss.Height(leftText), lipgloss.Height(rightText))+2))
 	return lipgloss.JoinHorizontal(lipgloss.Top, dashPanelColor(leftWidth, height, leftText, sectionColor), strings.Repeat(" ", gap), dashPanelColor(rightWidth, height, rightText, colorSlate))
 }
 func pageHeading(p page, name, description string) string {
 	heading := lipgloss.NewStyle().Bold(true).Foreground(pageColor(p))
-	return heading.Render("◆  "+name) + "\n" + dashDim.Render(description) + "\n\n"
+	return heading.Render("◆  "+name) + "\n" + dashDim.Render("   "+description) + "\n\n"
 }
 func (m Model) workspace(width int) string {
 	switch m.page {
@@ -106,7 +106,7 @@ func (m Model) investigationsWorkspace(width int) string {
 			right = []string{dashViolet.Render("SELECTED INCIDENT"), "", dashDim.Render("TITLE"), dashText.Render(oneLine(item.Title)), "", dashDim.Render("TARGET"), dashText.Render(oneLine(target)), "", dashDim.Render("CREATED"), dashText.Render(stamp(item.CreatedAt)), "", dashDim.Render("Enter  Open latest investigation"), dashDim.Render("n      Start another investigation")}
 		}
 	}
-	return pageHeading(investigationsPage, "INVESTIGATIONS", "Browse this session or begin a new diagnosis") + sideBySide(width, left, right, pageColor(investigationsPage), false)
+	return pageHeading(investigationsPage, "INVESTIGATIONS", "Browse this session or begin a new diagnosis") + sideBySide(width, m.viewportHeight()-3, left, right, pageColor(investigationsPage), false)
 }
 func (m Model) repairsWorkspace(width int) string {
 	enabled := "Disabled"
@@ -146,7 +146,7 @@ func (m Model) repairsWorkspace(width int) string {
 			right = []string{dashAmber.Render("SELECTED PLAN"), "", dashDim.Render("STATUS"), dashText.Render(oneLine(p.Status)), "", dashDim.Render("TARGET"), dashText.Render(oneLine(p.Target.Context + ":" + p.Target.Namespace + "/" + p.Target.Name)), "", dashDim.Render("ACTION"), dashText.Render(oneLine(p.Action)), "", dashDim.Render("Enter  Review the plan and its impact")}
 		}
 	}
-	return pageHeading(repairsPage, "REPAIRS", "Review and verify proposed actions") + sideBySide(width, left, right, pageColor(repairsPage), false)
+	return pageHeading(repairsPage, "REPAIRS", "Review and verify proposed actions") + sideBySide(width, m.viewportHeight()-3, left, right, pageColor(repairsPage), false)
 }
 func (m Model) settingValue(i int) string {
 	value := m.settings.Value(i)
@@ -195,7 +195,7 @@ func (m Model) settingsWorkspace(width int) string {
 	if m.inspection.Error != "" {
 		right = append(right, dashAmber.Render("Inspection: "+oneLine(m.inspection.Error)))
 	}
-	return pageHeading(settingsPage, "SETTINGS", "Configure your local troubleshooting workspace") + sideBySide(width, left, right, pageColor(settingsPage), false)
+	return pageHeading(settingsPage, "SETTINGS", "Configure your local troubleshooting workspace") + sideBySide(width, m.viewportHeight()-3, left, right, pageColor(settingsPage), false)
 }
 func (m Model) chatWorkspace(width int) string {
 	left := []string{dashCyan.Render("CONVERSATION"), dashDim.Render("Ask about evidence from the selected investigation"), ""}
@@ -222,5 +222,5 @@ func (m Model) chatWorkspace(width int) string {
 			left = append(left, dashDim.Render("Press Enter to ask a question"))
 		}
 	}
-	return pageHeading(chatPage, "ASSISTANT", "Discuss the investigation and its collected evidence") + sideBySide(width, left, right, pageColor(chatPage), true)
+	return pageHeading(chatPage, "ASSISTANT", "Discuss the investigation and its collected evidence") + sideBySide(width, m.viewportHeight()-3, left, right, pageColor(chatPage), true)
 }

@@ -194,6 +194,32 @@ func TestDetailLayoutCentersPanelAndSpacesHeader(t *testing.T) {
 	}
 }
 
+func TestFullScreenPanelsAdaptToTerminal(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{120, 32}, {240, 60}} {
+		for _, p := range []page{overviewPage, investigationsPage} {
+			m := New(http.NewServeMux(), "model", false)
+			m.width, m.height, m.page = size.width, size.height, p
+			m.overview = &kube.Overview{}
+			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+			lastBorder := -1
+			for i, line := range lines {
+				if strings.Contains(line, "╰") {
+					lastBorder = i
+				}
+				if lipgloss.Width(line) > size.width {
+					t.Fatalf("%dx%d page %d overflows", size.width, size.height, p)
+				}
+			}
+			if lastBorder < size.height-6 {
+				t.Errorf("%dx%d page %d: panel ends too early at row %d", size.width, size.height, p, lastBorder)
+			}
+			if lastBorder >= 0 && lipgloss.Width(strings.TrimRight(lines[lastBorder], " ")) < size.width-3 {
+				t.Errorf("%dx%d page %d: panel does not use available width", size.width, size.height, p)
+			}
+		}
+	}
+}
+
 func TestDashboardShowsFindingsAndFits(t *testing.T) {
 	for _, width := range []int{90, 120, 160, 220} {
 		m := New(http.NewServeMux(), "model", false)

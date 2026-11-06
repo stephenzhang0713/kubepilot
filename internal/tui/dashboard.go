@@ -66,9 +66,9 @@ func (m Model) dashboard(width int) string {
 	snapshotLabel := dashDim.Render(snapshot)
 	space := max(2, width-lipgloss.Width(heading)-lipgloss.Width(snapshotLabel))
 	b.WriteString(heading + strings.Repeat(" ", space) + snapshotLabel + "\n")
-	b.WriteString(dashDim.Render("Read-only resource checks  ·  evidence for your next investigation") + "\n\n")
+	b.WriteString(dashDim.Render("   Read-only resource checks  ·  evidence for your next investigation") + "\n\n")
 	if m.overview == nil {
-		b.WriteString(dashPanel(width, 7, strings.Join([]string{
+		b.WriteString(dashPanel(width, max(7, m.viewportHeight()-3), strings.Join([]string{
 			dashAccent.Render("◈  CONNECT YOUR CLUSTER"), "", dashText.Render("No snapshot is available for this session."), dashDim.Render("c  Select context     r  Run checks     n  Start investigation"),
 		}, "\n")))
 		return b.String()
@@ -137,7 +137,7 @@ func (m Model) dashboard(width int) string {
 	}
 	leftText := ansi.Wrap(strings.Join(left, "\n"), leftWidth-4, "")
 	rightText := ansi.Wrap(strings.Join(right, "\n"), rightWidth-4, "")
-	panelHeight := max(12, max(lipgloss.Height(leftText), lipgloss.Height(rightText))+2)
+	panelHeight := max(m.viewportHeight()-11, max(12, max(lipgloss.Height(leftText), lipgloss.Height(rightText))+2))
 	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, dashPanelColor(leftWidth, panelHeight, leftText, colorBlue), strings.Repeat(" ", gap), dashPanelColor(rightWidth, panelHeight, rightText, colorViolet)))
 	b.WriteString("\n\n" + dashDim.Render("NEXT  ") + dashViolet.Render("n") + dashText.Render("  Investigate") + dashDim.Render("   ·   ") + dashCyan.Render("r") + dashText.Render("  Refresh snapshot") + dashDim.Render("   ·   ") + dashRose.Render("c") + dashText.Render("  Switch context"))
 	return b.String()

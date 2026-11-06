@@ -81,9 +81,8 @@ func state(s string) string {
 }
 func (m Model) viewportHeight() int { return max(1, m.height-8) }
 func (m Model) viewportLines() []string {
-	available := min(max(1, m.width-4), 144)
+	available := max(1, m.width-4)
 	width := available
-	contentWidth := width
 	var text string
 	switch {
 	case m.page == overviewPage && m.mode == "" && m.width >= 90 && m.height >= 22:
@@ -91,22 +90,15 @@ func (m Model) viewportLines() []string {
 	case m.width >= 62 && m.height >= 18 && (m.mode == "" || (m.page == chatPage && m.mode == "chat-input")) && m.page != overviewPage:
 		text = m.workspace(width)
 	case m.width >= 90 && m.height >= 22 && m.mode != "" && m.mode != "chat-input":
-		panelWidth := min(width, 110)
-		contentWidth = panelWidth
+		panelWidth := width
 		content := styleContent(safeText(m.content()))
 		wrapped := ansi.Wrap(content, panelWidth-4, "")
-		text = dashPanel(panelWidth, max(8, lipgloss.Height(wrapped)+2), wrapped)
+		text = dashPanel(panelWidth, max(m.viewportHeight(), max(8, lipgloss.Height(wrapped)+2)), wrapped)
 	default:
 		text = ansi.Wrap(styleContent(safeText(m.content())), width, "")
 	}
 	lines := strings.Split(text, "\n")
-	// Keep very wide terminals readable while using the available width on laptops.
-	if available > contentWidth {
-		padding := strings.Repeat(" ", (available-contentWidth)/2)
-		for i := range lines {
-			lines[i] = padding + lines[i]
-		}
-	}
+
 	return lines
 }
 func (m Model) maxOffset() int { return max(0, len(m.viewportLines())-m.viewportHeight()) }
@@ -151,9 +143,9 @@ func (m Model) render() string {
 	if m.width < 30 || m.height < 10 {
 		return "KubePilot\nPlease enlarge your terminal (30 × 10 minimum)."
 	}
-	width := min(m.width-4, 144)
+	width := m.width - 4
 	margin := (m.width - width) / 2
-	brand := dashViolet.Render("◈") + highlight.Render("  KUBEPILOT") + muted.Render("   /   SRE WORKSPACE")
+	brand := dashViolet.Render("◈") + highlight.Render("  KUBEPILOT") + muted.Render("  /  SRE WORKSPACE")
 	context := m.cluster.Context
 	if context == "" {
 		context = "not configured"
@@ -164,18 +156,18 @@ func (m Model) render() string {
 	if m.width >= 70 {
 		brand += strings.Repeat(" ", max(1, width-lipgloss.Width(brand)-lipgloss.Width(session))) + session
 	}
-	header := brand + "\n" + muted.Render("   CONTEXT  ") + dashCyan.Render(context) + muted.Render("    ·    MODEL  ") + dashRose.Render(modelName)
+	header := brand + "\n" + muted.Render("   CONTEXT  ") + dashCyan.Render(context) + muted.Render("   ·   MODEL  ") + dashRose.Render(modelName)
 
 	var tabs []string
 	for i, p := range pages {
-		label := fmt.Sprintf(" %d %s ", i+1, p)
+		label := fmt.Sprintf("%d %s", i+1, p)
 		if page(i) == m.page {
-			tabs = append(tabs, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0B1726")).Background(pageColor(page(i))).Render(label))
+			tabs = append(tabs, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#0B1726")).Background(pageColor(page(i))).Render(" "+label+" "))
 		} else {
 			tabs = append(tabs, muted.Render(label))
 		}
 	}
-	nav := strings.Join(tabs, " ")
+	nav := strings.Join(tabs, "  ")
 	if m.width < 72 {
 		var compact []string
 		for i := range pages {
