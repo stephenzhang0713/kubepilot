@@ -81,8 +81,9 @@ func state(s string) string {
 }
 func (m Model) viewportHeight() int { return max(1, m.height-8) }
 func (m Model) viewportLines() []string {
-	available := max(1, m.width-6)
-	width := min(available, 144)
+	available := min(max(1, m.width-4), 144)
+	width := available
+	contentWidth := width
 	var text string
 	switch {
 	case m.page == overviewPage && m.mode == "" && m.width >= 90 && m.height >= 22:
@@ -91,6 +92,7 @@ func (m Model) viewportLines() []string {
 		text = m.workspace(width)
 	case m.width >= 90 && m.height >= 22 && m.mode != "" && m.mode != "chat-input":
 		panelWidth := min(width, 110)
+		contentWidth = panelWidth
 		content := styleContent(safeText(m.content()))
 		wrapped := ansi.Wrap(content, panelWidth-4, "")
 		text = dashPanel(panelWidth, max(8, lipgloss.Height(wrapped)+2), wrapped)
@@ -99,8 +101,8 @@ func (m Model) viewportLines() []string {
 	}
 	lines := strings.Split(text, "\n")
 	// Keep very wide terminals readable while using the available width on laptops.
-	if available > width {
-		padding := strings.Repeat(" ", (available-width)/2)
+	if available > contentWidth {
+		padding := strings.Repeat(" ", (available-contentWidth)/2)
 		for i := range lines {
 			lines[i] = padding + lines[i]
 		}
@@ -149,7 +151,8 @@ func (m Model) render() string {
 	if m.width < 30 || m.height < 10 {
 		return "KubePilot\nPlease enlarge your terminal (30 × 10 minimum)."
 	}
-	width := m.width - 4
+	width := min(m.width-4, 144)
+	margin := (m.width - width) / 2
 	brand := dashViolet.Render("◈") + highlight.Render("  KUBEPILOT") + muted.Render("   /   SRE WORKSPACE")
 	context := m.cluster.Context
 	if context == "" {
@@ -159,7 +162,7 @@ func (m Model) render() string {
 	modelName := strings.ReplaceAll(safeText(m.modelName), "\n", " ")
 	session := muted.Render("LOCAL SESSION")
 	if m.width >= 70 {
-		brand += strings.Repeat(" ", max(1, m.width-2-lipgloss.Width(brand)-lipgloss.Width(session))) + session
+		brand += strings.Repeat(" ", max(1, width-lipgloss.Width(brand)-lipgloss.Width(session))) + session
 	}
 	header := brand + "\n" + muted.Render("   CONTEXT  ") + dashCyan.Render(context) + muted.Render("    ·    MODEL  ") + dashRose.Render(modelName)
 
@@ -187,16 +190,16 @@ func (m Model) render() string {
 	}
 	var headerLines []string
 	for line := range strings.SplitSeq(header, "\n") {
-		headerLines = append(headerLines, ansi.Truncate(line, m.width-2, "…"))
+		headerLines = append(headerLines, ansi.Truncate(line, width, "…"))
 	}
 	header = strings.Join(headerLines, "\n")
-	nav = ansi.Truncate(nav, m.width-2, "…")
+	nav = ansi.Truncate(nav, width, "…")
 	lines := m.viewportLines()
 	available := m.viewportHeight()
 	offset := m.visibleOffset(lines)
 	end := min(len(lines), offset+available)
 	body := strings.Join(lines[offset:end], "\n")
-	body = lipgloss.NewStyle().Width(width).Height(available).Padding(0, 1).Render(body)
+	body = lipgloss.NewStyle().Width(width).Height(available).Render(body)
 
 	status := m.status
 	if m.busy {
@@ -242,7 +245,12 @@ func (m Model) render() string {
 			help = "↑/↓ select  ·  enter review  ·  pgup/pgdn scroll  ·  q quit"
 		}
 	}
-	return lipgloss.NewStyle().Padding(0, 1).Render(header + "\n" + nav + "\n" + body + "\n" + ansi.Truncate(status, m.width-2, "…") + "\n" + ansi.Truncate(styledHelp(help), m.width-2, "…"))
+	top, gap := "", ""
+	if m.height >= 18 {
+		top, gap = "\n", "\n"
+	}
+	content := top + header + "\n" + gap + nav + "\n" + gap + body + "\n" + ansi.Truncate(status, width, "…") + "\n" + ansi.Truncate(styledHelp(help), width, "…")
+	return lipgloss.NewStyle().PaddingLeft(margin).Render(content)
 }
 func (m Model) content() string {
 	var b strings.Builder

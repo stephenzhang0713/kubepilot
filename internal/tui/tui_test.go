@@ -175,6 +175,25 @@ func TestViewFitsTerminalSizes(t *testing.T) {
 	}
 }
 
+func TestDetailLayoutCentersPanelAndSpacesHeader(t *testing.T) {
+	for _, width := range []int{120, 200} {
+		m := New(http.NewServeMux(), "model", false)
+		m.width, m.height = width, 40
+		m.page, m.mode = investigationsPage, "result"
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		if strings.TrimSpace(lines[0]) != "" || strings.TrimSpace(lines[3]) != "" || strings.TrimSpace(lines[5]) != "" {
+			t.Fatalf("width %d: expected space around header and navigation", width)
+		}
+		panel := lines[6]
+		left := len(panel) - len(strings.TrimLeft(panel, " "))
+		panelWidth := ansi.StringWidth(strings.TrimSpace(panel))
+		right := width - left - panelWidth
+		if left-right < -1 || left-right > 1 {
+			t.Errorf("width %d: panel margins are %d and %d", width, left, right)
+		}
+	}
+}
+
 func TestDashboardShowsFindingsAndFits(t *testing.T) {
 	for _, width := range []int{90, 120, 160, 220} {
 		m := New(http.NewServeMux(), "model", false)
