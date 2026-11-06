@@ -33,6 +33,12 @@ npm run dev
 
 打开终端显示的 Vite 地址（默认 http://127.0.0.1:5173），点击 **Connect cluster → Local kubeconfig** 选择本机 context，或上传内嵌凭据的 kubeconfig，然后刷新集群概览，或选择集群、Pod 范围并运行调查。如果后端启动时已加载本地 kubeconfig，也可以直接使用。API 默认只监听 `127.0.0.1:8080`。如果本地配置不可用，请检查 `kubectl config current-context`，或在网页中配置。
 
+## 修复后的滚动更新验证
+
+批准并提交 Deployment 滚动重启后，可在修复管理中点击“检查滚动更新”。KubePilot 会重新读取目标 Deployment，核对集群连接、UID、本次重启标记、提交时的 generation、控制器观察到的 generation 和副本状态。只有预期副本数大于零且与审批时一致，更新、就绪、可用和总副本数均满足预期时，才显示滚动更新已验证。验证为一次即时检查，可再次手动检查。
+
+这只能证明 Deployment 控制器报告的滚动更新状态，不能证明业务恢复或原始故障已解决；也不提供自动回滚。事件、修复计划及验证结果仅保存在后端内存，重启后丢失，不构成持久审计日志。
+
 ## 本地集群
 
 对于 Minikube 或 Rancher Desktop，先启动集群，使用 `kubectl config get-contexts` 和 `kubectl get nodes` 检查。在同一台机器上启动后端后，点击 **Connect cluster → Local kubeconfig**，选择对应的 context。后端遵循 client-go 的标准配置加载规则：优先使用 `KUBECONFIG`，未设置时使用 `~/.kube/config`。要使用其他文件，请在启动后端**之前**设置 `KUBECONFIG=/path/to/config`；多个文件可按系统路径分隔符配置。运行后端的用户需要能读取所引用的证书和凭据。本地 kubeconfig 中的认证插件可能在连接时于后端机器上执行，请仅使用可信配置。

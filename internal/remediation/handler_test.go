@@ -40,9 +40,12 @@ type stubRunner struct{ calls atomic.Int32 }
 func (*stubRunner) PrepareRestart(_ context.Context, rev uint64, ns, name string) (kube.DeploymentSnapshot, error) {
 	return kube.DeploymentSnapshot{Namespace: ns, Name: name, Revision: rev, UID: "uid", ResourceVersion: "1"}, nil
 }
-func (s *stubRunner) ExecuteRestart(context.Context, kube.DeploymentSnapshot) error {
+func (s *stubRunner) ExecuteRestart(context.Context, kube.DeploymentSnapshot) (int64, error) {
 	s.calls.Add(1)
-	return nil
+	return 1, nil
+}
+func (*stubRunner) VerifyRestart(context.Context, kube.DeploymentSnapshot) (kube.RolloutEvidence, error) {
+	return kube.RolloutEvidence{ObservedAt: time.Now(), Verified: true}, nil
 }
 func TestApprovalRequiredAndSingleUse(t *testing.T) {
 	mux := http.NewServeMux()
@@ -90,6 +93,10 @@ func TestApprovalRequiredAndSingleUse(t *testing.T) {
 	w = request("POST", "/api/remediations/"+plan.ID+"/execute", `{"confirm":"restart"}`, true)
 	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"submitted"`)) {
 		t.Fatalf("execute: %d %s", w.Code, w.Body.String())
+	}
+	w = request("POST", "/api/remediations/"+plan.ID+"/verify", `{}`, false)
+	if w.Code != 200 || !bytes.Contains(w.Body.Bytes(), []byte(`"verified":true`)) {
+		t.Fatalf("verify: %d %s", w.Code, w.Body.String())
 	}
 	w = request("POST", "/api/remediations/"+plan.ID+"/execute", `{"confirm":"restart"}`, true)
 	if w.Code != 409 || runner.calls.Load() != 1 {

@@ -18,7 +18,8 @@ import (
 
 type Runner interface {
 	PrepareRestart(context.Context, uint64, string, string) (kube.DeploymentSnapshot, error)
-	ExecuteRestart(context.Context, kube.DeploymentSnapshot) error
+	ExecuteRestart(context.Context, kube.DeploymentSnapshot) (int64, error)
+	VerifyRestart(context.Context, kube.DeploymentSnapshot) (kube.RolloutEvidence, error)
 }
 type Plans struct {
 	mu             sync.Mutex
@@ -36,6 +37,7 @@ type Plan struct {
 	Status          string                  `json:"status"`
 	Error           string                  `json:"error,omitempty"`
 	CreatedAt       time.Time               `json:"createdAt"`
+	Verification    *kube.RolloutEvidence   `json:"verification,omitempty"`
 	CompletedAt     time.Time               `json:"completedAt,omitzero"`
 }
 
@@ -45,6 +47,7 @@ func (p *Plans) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/remediations", p.create)
 	mux.HandleFunc("POST /api/remediations/{id}/execute", p.execute)
 	mux.HandleFunc("POST /api/remediations/{id}/reject", p.reject)
+	mux.HandleFunc("POST /api/remediations/{id}/verify", p.verify)
 }
 func acceptJSON(r *http.Request) bool {
 	media, _, e := mime.ParseMediaType(r.Header.Get("Content-Type"))
@@ -166,12 +169,14 @@ func (p *Plans) execute(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "plan expired; create a new plan", http.StatusConflict)
 		return
 	}
+	plan.Target.RestartToken = plan.ID
 	plan.Status = "executing"
 	p.items[plan.ID] = plan
 	p.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 	defer cancel()
-	err := p.Runner.ExecuteRestart(ctx, plan.Target)
+	generation, err := p.Runner.ExecuteRestart(ctx, plan.Target)
+	plan.Target.RestartGeneration = generation
 	plan.CompletedAt = time.Now().UTC()
 	if err != nil {
 		plan.Status = "unconfirmed"
@@ -210,4 +215,34 @@ func (p *Plans) reject(w http.ResponseWriter, r *http.Request) {
 	plan.CompletedAt = time.Now().UTC()
 	p.items[plan.ID] = plan
 	respond(w, plan)
+}
+
+// verify reads fresh evidence; it never issues a cluster mutation.
+func (p *Plans) verify(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	plan, ok := p.items[r.PathValue("id")]
+	p.mu.Unlock()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if plan.Status != "submitted" {
+		http.Error(w, "only submitted plans can be verified", http.StatusConflict)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	evidence, err := p.Runner.VerifyRestart(ctx, plan.Target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	p.mu.Lock()
+	current := p.items[plan.ID]
+	if current.Verification == nil || current.Verification.ObservedAt.Before(evidence.ObservedAt) {
+		current.Verification = &evidence
+		p.items[plan.ID] = current
+	}
+	p.mu.Unlock()
+	respond(w, current)
 }

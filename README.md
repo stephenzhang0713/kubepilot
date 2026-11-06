@@ -33,6 +33,12 @@ npm run dev
 
 Open the Vite URL shown in the terminal (default: http://127.0.0.1:5173). Use **Connect cluster → Local kubeconfig** to select a context, or upload an embedded kubeconfig, then refresh the cluster snapshot or select cluster or Pod scope and run an investigation. If a local kubeconfig was loaded at startup, you can also use it directly. The API listens on `127.0.0.1:8080` by default. If the local configuration is unavailable, check `kubectl config current-context` or configure it in the browser.
 
+## Verify a restart rollout
+
+After approving and submitting a Deployment restart, use **Check rollout** in repair management to fetch fresh Deployment status. Verification checks the cluster connection, UID, restart marker, submitted generation, observed generation, and replica counts. It requires a positive replica count unchanged since approval, with updated, ready, available, and total replicas matching the desired count. This is a point-in-time check and can be repeated.
+
+This verifies only the Deployment controller's rollout status, not application health or resolution of the original incident. There is no automatic rollback. Incidents, plans, and verification results are held in backend memory and lost on restart; they are not a persistent audit log.
+
 ## Local clusters
 
 For Minikube or Rancher Desktop, start the cluster and check `kubectl config get-contexts` and `kubectl get nodes`. Start the backend on the same machine, open **Connect cluster → Local kubeconfig**, and select the desired context. The backend uses the standard client-go loading rules: `KUBECONFIG` if set, otherwise `~/.kube/config`. Set `KUBECONFIG=/path/to/config` **before** starting the backend to use a different file; multiple files can be separated with the platform path separator. The backend account needs read access to referenced certificates and credentials. Local kubeconfigs may use authentication plugins, which run on the backend machine when needed; use only trusted configs.
