@@ -85,6 +85,21 @@ npm run dev
 
 设置随机且保密的 `KUBEPILOT_ALERT_TOKEN` 启用告警接收，并在 Alertmanager 配置 webhook URL 为 `http://<可达的 KubePilot 地址>/api/alerts/alertmanager`，使用 `http_config.authorization.credentials` 配置同一 token（Bearer）。默认监听本机；跨主机需要安全的网络和认证代理，不能直接公开整个无用户认证的 API。Compose 可通过其 Web 端口代理该路径，但默认仅绑定本机。
 
+例如，将以下 receiver 合并到现有 Alertmanager 配置和路由中（地址需从 Alertmanager 所在环境可达）：
+
+```yaml
+receivers:
+  - name: kubepilot
+    webhook_configs:
+      - url: http://127.0.0.1:8080/api/alerts/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            credentials_file: /etc/alertmanager/kubepilot-token
+```
+
+该文件应只包含与 `KUBEPILOT_ALERT_TOKEN` 相同的 token，并由 Alertmanager 进程安全读取。容器内的 `127.0.0.1` 指该容器自身，请按部署环境调整地址。
+
 接收器根据 fingerprint 和 startsAt 合并重复告警，保存 firing/resolved 状态，串行自动调查新告警；有 `namespace` 和 `pod` 标签时调查该 Pod，否则调查集群。结果可在调查历史查看。队列保存在本地，进程中断后会重试未完成任务，可能产生重复调查；已开始的调查不会因告警恢复而取消。告警不会自动执行修复。请确保 Kubernetes context 与告警来源一致；当前没有多集群路由。告警会调用模型，可能产生费用。
 
 ## 人工批准的修复操作

@@ -85,6 +85,21 @@ Set `PROMETHEUS_URL` (for example `http://localhost:9090`) and optionally `PROME
 
 Set a secret `KUBEPILOT_ALERT_TOKEN` to enable the Alertmanager v4 webhook at `/api/alerts/alertmanager`. Configure Alertmanager `http_config.authorization.credentials` with the same Bearer token. The server listens locally by default. Remote access requires a secured network and authentication proxy; do not expose the rest of the unauthenticated API. The Compose web port proxies this path and is bound to localhost by default.
 
+For example, add this receiver to the Alertmanager configuration and route alerts to it:
+
+```yaml
+receivers:
+  - name: kubepilot
+    webhook_configs:
+      - url: http://127.0.0.1:8080/api/alerts/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            credentials_file: /etc/alertmanager/kubepilot-token
+```
+
+The credentials file should contain the same token as `KUBEPILOT_ALERT_TOKEN` and be readable only as needed. Adjust the URL to be reachable from Alertmanager; `127.0.0.1` inside a container refers to that container.
+
 The receiver deduplicates occurrences by fingerprint and start time, stores firing/resolved status, and serially starts investigations. Alerts with both `namespace` and `pod` labels target that Pod; others target the cluster. Pending work survives restarts and can be retried, so interruption may produce duplicate investigations. Resolution does not cancel a running investigation. Alerts never execute repairs. Ensure the active Kubernetes context matches the alert source; multi-cluster routing is not supported. Investigations invoke the model and may incur costs.
 
 ## Approved repair operations
