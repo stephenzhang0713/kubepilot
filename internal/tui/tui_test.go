@@ -182,7 +182,7 @@ func TestDashboardShowsFindingsAndFits(t *testing.T) {
 				t.Errorf("width %d: missing %q", width, text)
 			}
 		}
-		for _, line := range strings.Split(output, "\n") {
+		for line := range strings.SplitSeq(output, "\n") {
 			if lipgloss.Width(line) > width {
 				t.Errorf("width %d: line overflows: %d", width, lipgloss.Width(line))
 				break
@@ -205,5 +205,12 @@ func TestDashboardScrollsLongFindings(t *testing.T) {
 	m.offset = m.maxOffset()
 	if !strings.Contains(m.View().Content, "ns/pod-19") {
 		t.Fatal("last finding is not reachable")
+	}
+}
+
+func TestDashboardCountsTruncatedAttentionAsGap(t *testing.T) {
+	checked, attention, unknown := countStates([]kube.Section{{State: "attention", Checked: 3, Truncated: true}, {State: "unknown", Error: "forbidden"}, {State: "ok", Checked: 1}})
+	if checked != 4 || attention != 1 || unknown != 2 {
+		t.Fatalf("unexpected counts: %d %d %d", checked, attention, unknown)
 	}
 }

@@ -28,10 +28,10 @@ func dashPanel(width, height int, content string) string {
 func countStates(sections []kube.Section) (checked, attention, unknown int) {
 	for _, s := range sections {
 		checked += s.Checked
-		switch s.State {
-		case "attention":
+		if s.State == "attention" {
 			attention++
-		case "unknown":
+		}
+		if s.State == "unknown" || s.Truncated || s.Error != "" {
 			unknown++
 		}
 	}
@@ -65,7 +65,7 @@ func (m Model) dashboard(width int) string {
 	}{
 		{"RESOURCES", fmt.Sprint(checked), fmt.Sprintf("across %d checks", len(sections)), dashAccent},
 		{"NEEDS ATTENTION", fmt.Sprint(attention), "resource groups with findings", dashGreen},
-		{"UNKNOWN", fmt.Sprint(unknown), "resource groups not fully checked", dashGreen},
+		{"UNKNOWN", fmt.Sprint(unknown), "groups with collection gaps", dashGreen},
 	}
 	if attention > 0 {
 		metrics[1].style = dashRed

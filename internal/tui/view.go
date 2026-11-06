@@ -70,12 +70,19 @@ func (m Model) render() string {
 		return "KubePilot\nPlease enlarge your terminal (30 × 10 minimum)."
 	}
 	width := m.width - 4
-	brand := highlight.Render("╭─◆─╮  K U B E P I L O T") + muted.Render("   /   SRE CONSOLE")
+	brand := highlight.Render("◈  KUBEPILOT") + muted.Render("   /   SRE WORKSPACE")
 	context := m.cluster.Context
 	if context == "" {
-		context = "not connected"
+		context = "not configured"
 	}
-	header := brand + "\n" + highlight.Render("╰─┬─╯  ") + muted.Render("CONTEXT  ") + clean(context) + muted.Render("    MODEL  ") + clean(m.modelName)
+	context = strings.ReplaceAll(safeText(context), "\n", " ")
+	modelName := strings.ReplaceAll(safeText(m.modelName), "\n", " ")
+	session := muted.Render("LOCAL SESSION")
+	if m.width >= 70 {
+		brand += strings.Repeat(" ", max(1, m.width-2-lipgloss.Width(brand)-lipgloss.Width(session))) + session
+	}
+	header := brand + "\n" + muted.Render("   CONTEXT  ") + dashText.Render(context) + muted.Render("    ·    MODEL  ") + dashText.Render(modelName)
+
 	var tabs []string
 	for i, p := range pages {
 		label := fmt.Sprintf(" %d %s ", i+1, p)
@@ -388,6 +395,10 @@ func styleContent(content string) string {
 	for i, line := range lines {
 		trim := strings.TrimSpace(line)
 		switch {
+		case i == 0:
+			lines[i] = title.Render(line)
+		case i == 1:
+			lines[i] = muted.Render(line)
 		case strings.HasPrefix(trim, "› "):
 			lines[i] = highlight.Render(line)
 		case strings.HasPrefix(trim, "▲"):
