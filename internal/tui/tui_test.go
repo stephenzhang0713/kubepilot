@@ -4,17 +4,18 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stephenzhang0713/kubepilot/internal/agent"
 	"github.com/stephenzhang0713/kubepilot/internal/config"
 	"github.com/stephenzhang0713/kubepilot/internal/incidents"
 	"github.com/stephenzhang0713/kubepilot/internal/investigation"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -138,7 +139,11 @@ func TestChatUsesSelectedInvestigation(t *testing.T) {
 	if cmd == nil || !m.busy {
 		t.Fatal("question should start an asynchronous request")
 	}
-	reply := cmd()
+	commands, ok := cmd().(tea.BatchMsg)
+	if !ok || len(commands) == 0 {
+		t.Fatal("expected chat and spinner commands")
+	}
+	reply := commands[0]()
 	next, _ = m.Update(reply)
 	m = next.(Model)
 	if got.ID != "investigation-1" || got.Evidence.Logs != "backoff" || len(turns) != 1 || turns[0].Text != "What happened?" {
@@ -225,7 +230,7 @@ func TestPanelHeightAndAlignment(t *testing.T) {
 	if lipgloss.Height(left) != 14 || lipgloss.Height(right) != 14 {
 		t.Fatalf("panel heights differ: %d, %d", lipgloss.Height(left), lipgloss.Height(right))
 	}
-	for _, line := range strings.Split(left, "\n") {
+	for line := range strings.SplitSeq(left, "\n") {
 		if lipgloss.Width(line) != 45 {
 			t.Fatalf("wrong panel width %d", lipgloss.Width(line))
 		}
@@ -259,7 +264,7 @@ func TestWorkspaceLayoutsAndChatInput(t *testing.T) {
 		if !strings.Contains(ansi.Strip(view), "why is this pod pending?") {
 			t.Errorf("%dx%d chat input is not visible", size.width, size.height)
 		}
-		for _, line := range strings.Split(view, "\n") {
+		for line := range strings.SplitSeq(view, "\n") {
 			if lipgloss.Width(line) > size.width {
 				t.Errorf("%dx%d chat line overflows: %d", size.width, size.height, lipgloss.Width(line))
 				break
@@ -346,11 +351,78 @@ func TestCompactPagesFitTerminal(t *testing.T) {
 		m.height = 24
 		for _, p := range []page{overviewPage, investigationsPage, chatPage, repairsPage, settingsPage} {
 			m.page = p
-			for _, line := range strings.Split(m.View().Content, "\n") {
+			for line := range strings.SplitSeq(m.View().Content, "\n") {
 				if ansi.StringWidth(line) > width {
 					t.Fatalf("page %d width %d overflow: %d", p, width, ansi.StringWidth(line))
 				}
 			}
 		}
+	}
+}
+
+func TestDeleteLastGrapheme(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{{"", ""}, {"e\u0301", ""}, {"ab👩‍💻", "ab"}, {"中👍🏽", "中"}, {"test🇨🇳", "test"}} {
+		if got := deleteLastGrapheme(tc.input); got != tc.want {
+			t.Errorf("delete from %q: got %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+func TestSpinnerStopsWhenIdleAndIgnoresOldTicks(t *testing.T) {
+	m := New(http.NewServeMux(), "test", false)
+	next, cmd := m.Update(tick{generation: 0})
+	m = next.(Model)
+	if cmd != nil || m.frame != 0 {
+		t.Fatal("idle spinner should not schedule another frame")
+	}
+	_ = m.begin("first")
+	old := m.busyGeneration
+	_ = m.begin("second")
+	next, cmd = m.Update(tick{generation: old})
+	m = next.(Model)
+	if cmd != nil || m.frame != 0 {
+		t.Fatal("stale tick should not start a second spinner")
+	}
+	next, cmd = m.Update(tick{generation: m.busyGeneration})
+	m = next.(Model)
+	if cmd == nil || m.frame != 1 {
+		t.Fatal("active spinner should schedule its next frame")
+	}
+}
+func TestConfirmationShowsTargetBeforeLongReason(t *testing.T) {
+	m := New(http.NewServeMux(), "test", true)
+	m.page = repairsPage
+	m.mode = "confirm"
+	m.width = 100
+	m.height = 22
+	m.plans = []remediation.Plan{{Status: "pending", Action: "restart_deployment", Target: kube.DeploymentSnapshot{Context: "production", Namespace: "default", Name: "api"}, Reason: strings.Repeat("reason ", 1000)}}
+	view := ansi.Strip(m.View().Content)
+	for _, s := range []string{"default/api", "production", "Press y to submit"} {
+		if !strings.Contains(view, s) {
+			t.Errorf("confirmation should show %q before a long reason", s)
+		}
+	}
+}
+
+func TestSelectionMarkerIsNotTakenFromUnselectedText(t *testing.T) {
+	m := New(http.NewServeMux(), "test", false)
+	m.page = investigationsPage
+	m.width = 100
+	m.height = 22
+	for i := range 35 {
+		title := fmt.Sprintf("incident-%02d", i)
+		if i == 0 {
+			title = "› misleading title"
+		}
+		m.incidents = append(m.incidents, incidents.Incident{Title: title, Scope: "cluster"})
+	}
+	m.selected = 34
+	if !strings.Contains(ansi.Strip(m.View().Content), "incident-34") {
+		t.Fatal("selected incident hidden by marker in an earlier title")
+	}
+}
+func TestSafeTextStripsTerminalControlsAndTabs(t *testing.T) {
+	got := safeText("a\tb\x1b]0;unsafe\x07c")
+	if strings.ContainsAny(got, "\x1b\t\a") || !strings.Contains(got, "a    b") {
+		t.Fatalf("unsafe terminal text: %q", got)
 	}
 }

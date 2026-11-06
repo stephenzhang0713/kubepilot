@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/stephenzhang0713/kubepilot/internal/agent"
 	"github.com/stephenzhang0713/kubepilot/internal/config"
@@ -40,7 +42,7 @@ type response struct {
 	data   []byte
 	err    error
 }
-type tick time.Time
+type tick struct{ generation uint64 }
 type chatReply struct {
 	text string
 	err  error
@@ -56,6 +58,7 @@ type Model struct {
 	busy             bool
 	busyLabel        string
 	frame            int
+	busyGeneration   uint64
 	status           string
 	statusError      bool
 	offset, selected int
@@ -97,10 +100,17 @@ func New(handler http.Handler, modelName string, repairEnabled bool, options ...
 	return m
 }
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.request("bootstrap", "GET", "/api/kubeconfig", nil), pulse())
+	return m.request("bootstrap", "GET", "/api/kubeconfig", nil)
 }
-func pulse() tea.Cmd {
-	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return tick(t) })
+func pulse(generation uint64) tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return tick{generation: generation} })
+}
+func (m *Model) begin(label string) tea.Cmd {
+	m.busy = true
+	m.busyLabel = label
+	m.statusError = false
+	m.busyGeneration++
+	return pulse(m.busyGeneration)
 }
 
 func (m Model) call(ctx context.Context, method, path string, body any, confirm bool) ([]byte, error) {
@@ -135,8 +145,8 @@ func (m Model) request(action, method, path string, body any) tea.Cmd {
 	}
 }
 func (m Model) start(action, label, method, path string, body any) (tea.Model, tea.Cmd) {
-	m.busy, m.busyLabel, m.statusError = true, label, false
-	return m, m.request(action, method, path, body)
+	spinner := m.begin(label)
+	return m, tea.Batch(m.request(action, method, path, body), spinner)
 }
 func (m Model) loadPage() tea.Cmd {
 	switch m.page {
@@ -153,8 +163,8 @@ func (m Model) loadPage() tea.Cmd {
 	}
 }
 func (m Model) refresh() (tea.Model, tea.Cmd) {
-	m.busy, m.busyLabel, m.statusError = true, "Refreshing", false
-	return m, m.loadPage()
+	spinner := m.begin("Refreshing")
+	return m, tea.Batch(m.loadPage(), spinner)
 }
 func (m Model) investigate() tea.Cmd {
 	input := struct {
@@ -215,8 +225,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tick:
+		if !m.busy || msg.generation != m.busyGeneration {
+			return m, nil
+		}
 		m.frame++
-		return m, pulse()
+		return m, pulse(msg.generation)
 	case response:
 		m.busy = false
 		if msg.err != nil {
@@ -586,17 +599,12 @@ func (m Model) updateForm(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.statusError = true
 			return m, nil
 		}
-		m.busy = true
-		m.busyLabel = "Collecting evidence and analyzing"
-		m.statusError = false
-		return m, m.investigate()
+		spinner := m.begin("Collecting evidence and analyzing")
+		return m, tea.Batch(m.investigate(), spinner)
 	case "backspace":
 		if m.field > 0 {
 			s := m.fields[m.field-1]
-			if len(s) > 0 {
-				_, n := utf8.DecodeLastRuneInString(s)
-				m.fields[m.field-1] = s[:len(s)-n]
-			}
+			m.fields[m.field-1] = deleteLastGrapheme(s)
 		}
 	default:
 		if m.field > 0 && msg.Text != "" && len([]rune(m.fields[m.field-1])) < 256 {
@@ -641,10 +649,7 @@ func (m Model) updateSetting(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.editValue = ""
 	case "backspace":
-		if len(m.editValue) > 0 {
-			_, n := utf8.DecodeLastRuneInString(m.editValue)
-			m.editValue = m.editValue[:len(m.editValue)-n]
-		}
+		m.editValue = deleteLastGrapheme(m.editValue)
 	case "space":
 		m.editValue += " "
 	default:
@@ -664,10 +669,7 @@ func (m Model) updateChat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.chatInput = ""
 	case "backspace":
-		if len(m.chatInput) > 0 {
-			_, n := utf8.DecodeLastRuneInString(m.chatInput)
-			m.chatInput = m.chatInput[:len(m.chatInput)-n]
-		}
+		m.chatInput = deleteLastGrapheme(m.chatInput)
 	case "space":
 		m.chatInput += " "
 	case "enter":
@@ -683,18 +685,18 @@ func (m Model) updateChat(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.turns = append(m.turns, agent.Turn{Role: "user", Text: question})
 		m.chatInput = ""
 		m.mode = ""
-		m.busy = true
-		m.busyLabel = "Thinking with investigation evidence"
+		spinner := m.begin("Thinking with investigation evidence")
 		m.offset = m.maxOffset()
 		result := *m.result
 		turns := append([]agent.Turn(nil), m.turns...)
 		chat := m.chat
-		return m, func() tea.Msg {
+		ask := func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 			defer cancel()
 			answer, err := chat(ctx, result, turns)
 			return chatReply{text: answer, err: err}
 		}
+		return m, tea.Batch(ask, spinner)
 	default:
 		if msg.Text != "" && len([]rune(m.chatInput)) < 4000 {
 			m.chatInput = appendInput(m.chatInput, msg.Text, 4000)
@@ -714,4 +716,19 @@ func appendInput(existing, added string, limit int) string {
 		extra = extra[:remaining]
 	}
 	return existing + string(extra)
+}
+
+// deleteLastGrapheme keeps combining characters and emoji sequences intact.
+func deleteLastGrapheme(input string) string {
+	last := 0
+	for offset := 0; offset < len(input); {
+		last = offset
+		cluster, _ := ansi.FirstGraphemeCluster(input[offset:], ansi.GraphemeWidth)
+		size := len(cluster)
+		if size == 0 {
+			_, size = utf8.DecodeRuneInString(input[offset:])
+		}
+		offset += size
+	}
+	return input[:last]
 }

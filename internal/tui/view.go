@@ -91,11 +91,11 @@ func (m Model) viewportLines() []string {
 		text = m.workspace(width)
 	case m.width >= 90 && m.height >= 22 && m.mode != "" && m.mode != "chat-input":
 		panelWidth := min(width, 110)
-		content := styleContent(clean(ansi.Strip(m.content())))
+		content := styleContent(safeText(m.content()))
 		wrapped := ansi.Wrap(content, panelWidth-4, "")
 		text = dashPanel(panelWidth, max(8, lipgloss.Height(wrapped)+2), wrapped)
 	default:
-		text = ansi.Wrap(styleContent(clean(ansi.Strip(m.content()))), width, "")
+		text = ansi.Wrap(styleContent(safeText(m.content())), width, "")
 	}
 	lines := strings.Split(text, "\n")
 	// Keep very wide terminals readable while using the available width on laptops.
@@ -118,7 +118,7 @@ func (m Model) visibleOffset(lines []string) int {
 	if m.mode == "contexts" || (!m.manualScroll && m.mode == "" && (m.page == investigationsPage || m.page == repairsPage || m.page == settingsPage)) {
 		selectedLine := -1
 		for i, line := range lines {
-			if strings.Contains(ansi.Strip(line), "› ") {
+			if hasSelectionMarker(line) {
 				selectedLine = i
 				break
 			}
@@ -129,6 +129,15 @@ func (m Model) visibleOffset(lines []string) int {
 		offset = min(max(0, selectedLine-available+2), max(0, len(lines)-available))
 	}
 	return offset
+}
+
+// A marker must be at the start of the left pane, not inside resource text.
+func hasSelectionMarker(line string) bool {
+	plain := ansi.Strip(line)
+	if _, row, ok := strings.Cut(plain, "│"); ok {
+		return strings.HasPrefix(strings.TrimPrefix(row, " "), "› ")
+	}
+	return strings.HasPrefix(strings.TrimLeft(plain, " "), "› ")
 }
 
 func (m Model) View() tea.View {
@@ -197,11 +206,11 @@ func (m Model) render() string {
 		status = "Ready"
 	}
 	if m.statusError {
-		status = bad.Render(clean(status))
+		status = bad.Render(oneLine(status))
 	} else if m.busy {
-		status = dashCyan.Render(clean(status))
+		status = dashCyan.Render(oneLine(status))
 	} else {
-		status = dashDim.Render(clean(status))
+		status = dashDim.Render(oneLine(status))
 	}
 	help := "1–5 pages  ·  n investigate  ·  r refresh  ·  c context  ·  q quit"
 	switch m.mode {
@@ -316,7 +325,15 @@ func (m Model) content() string {
 			fmt.Fprintf(&b, "\nTOOL  %s  %s  %s", stamp(t.Time), t.Tool, t.Outcome)
 		}
 		return b.String()
-	case "plan", "confirm":
+	case "confirm":
+		if len(m.plans) == 0 {
+			return "No plan selected."
+		}
+		p := m.plans[m.selected]
+		heading("Confirm restart", "This may disrupt service. Verify the target before approving.")
+		fmt.Fprintf(&b, "TARGET       %s/%s\nCONTEXT      %s\nACTION       %s\n\nPress y to submit; n or Esc cancels.\n\nREASON\n%s\n", p.Target.Namespace, p.Target.Name, p.Target.Context, p.Action, p.Reason)
+		return b.String()
+	case "plan":
 		if len(m.plans) == 0 {
 			return "No plan selected."
 		}
@@ -329,9 +346,6 @@ func (m Model) content() string {
 		if p.Verification != nil {
 			v := p.Verification
 			fmt.Fprintf(&b, "\nROLLOUT  updated %d/%d  ready %d/%d  available %d/%d\nObserved: %s  verified: %t\n", v.Updated, v.Desired, v.Ready, v.Desired, v.Available, v.Desired, stamp(v.ObservedAt), v.Verified)
-		}
-		if m.mode == "confirm" {
-			fmt.Fprintf(&b, "\nCONFIRM: Restart Deployment %s/%s in %s?\nThis may disrupt service. Press y to submit, n to cancel.", p.Target.Namespace, p.Target.Name, p.Target.Context)
 		}
 		return b.String()
 	}

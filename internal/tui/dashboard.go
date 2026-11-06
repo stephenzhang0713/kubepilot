@@ -31,7 +31,7 @@ var (
 )
 
 // safeText ensures Kubernetes data cannot inject terminal control sequences.
-func safeText(s string) string { return clean(ansi.Strip(s)) }
+func safeText(s string) string { return strings.ReplaceAll(clean(ansi.Strip(s)), "\t", "    ") }
 
 func dashPanel(width, height int, content string) string {
 	return dashPanelColor(width, height, content, dashBorder)
