@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-KubePilot 是一个本地优先的 Kubernetes SRE 调查原型：通过 Web 查看集群概览，或针对集群组件、指定 Pod 创建调查，由 CloudWeGo Eino ReAct Agent 调用证据工具并生成分析。此版本只读，不会执行修复。
+KubePilot 是一个本地优先的 Kubernetes SRE 调查原型：通过 Web 查看集群概览，或针对集群组件、指定 Pod 创建调查，由 CloudWeGo Eino ReAct Agent 调用证据工具并生成分析。Agent 可以提出受限的 Deployment 滚动重启建议，经人工批准后执行；写操作默认关闭。
 
 ## 前提
 
@@ -48,6 +48,8 @@ npm run dev
 ## API
 
 - `GET /healthz`
+- `GET /api/settings`：查看当前模型名称与修复开关，不返回 API 密钥。
+- `GET /api/remediations`、`POST /api/remediations`、`POST /api/remediations/{id}/execute`：列出、准备并明确批准一次性修复计划。
 - `GET /api/cluster/overview`：只读采集节点、kube-system Pod、Deployment、DaemonSet、StatefulSet 和警告事件；每类最多检查 100 个资源，权限不足和截断会明确标注。
 - `GET /api/kubeconfig/contexts`、`PUT /api/kubeconfig/local`：列出并选择后端标准 kubeconfig 中的 context。
 - `GET /api/kubeconfig`、`PUT /api/kubeconfig`：查看配置状态或提交 `{"kubeconfig":"..."}`；响应不会包含凭据。
@@ -57,6 +59,14 @@ npm run dev
 - `GET /api/incidents/{id}/investigations`、`GET /api/investigations/{id}`
 
 事件和调查保存在进程内存中，重启后丢失。调查过程中会向配置的模型提供采集到的集群或 Pod 证据，包括事件和可能包含的日志；日志可能包含敏感信息，使用外部模型前请自行确认数据可发送。API 没有身份认证，适合本机使用；不要直接暴露到公共网络。Agent 输出是建议，并非已经验证的根因。
+
+## 人工批准的修复操作
+
+Agent 可以针对集群调查中发现异常的 Deployment 提出滚动重启建议。点击 **Review plan**，在 **Repair management** 中核对集群 context、命名空间、名称、UID、资源版本、副本数和建议原因。模型没有提出受支持的建议时，不会出现可执行的修复。提出建议本身不会修改集群。
+
+写操作默认关闭。需要使用时，在启动后端或 Compose 前设置 `KUBEPILOT_ENABLE_REMEDIATION=true`。每个计划都必须由用户单独批准；Kubernetes 身份需要目标 Deployment 的 `get` 和 `update` 权限。系统命名空间被排除。计划 15 分钟过期且只能使用一次；集群连接、对象身份或版本变化后会被拒绝。执行会更新 Pod 模板的重启注解，可能影响服务可用性。**submitted** 仅表示 API 已接受更新，不代表滚动更新或服务恢复已验证；若结果为 unconfirmed，请先检查 Deployment，再决定是否继续。
+
+计划和执行记录仅保存在内存中，重启后丢失。当前没有用户认证和持久审计日志，不要把 API 暴露给不可信用户或网络；仅在可信本地环境启用写入，并通过 Kubernetes RBAC 限制权限。模型不能直接执行集群操作。
 
 ## 验证
 

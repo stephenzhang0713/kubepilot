@@ -27,17 +27,29 @@ type Collector interface {
 type ClusterCollector interface {
 	CollectCluster(context.Context) (Evidence, error)
 }
+type Candidate struct {
+	Action    string `json:"action"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Reason    string `json:"reason"`
+}
+type ProposalAnalyzer interface {
+	AnalyzeWithProposals(context.Context, incidents.Incident, Evidence) (string, []Candidate, error)
+}
+type RevisionProvider interface{ Revision() uint64 }
 type Analyzer interface {
 	Analyze(context.Context, incidents.Incident, Evidence) (string, error)
 }
 type Result struct {
-	ID         string    `json:"id"`
-	IncidentID string    `json:"incidentId"`
-	Status     string    `json:"status"`
-	Evidence   Evidence  `json:"evidence"`
-	Analysis   string    `json:"analysis,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID              string      `json:"id"`
+	ClusterRevision uint64      `json:"clusterRevision"`
+	Candidates      []Candidate `json:"candidates,omitempty"`
+	IncidentID      string      `json:"incidentId"`
+	Status          string      `json:"status"`
+	Evidence        Evidence    `json:"evidence"`
+	Analysis        string      `json:"analysis,omitempty"`
+	Error           string      `json:"error,omitempty"`
+	CreatedAt       time.Time   `json:"createdAt"`
 }
 type Handler struct {
 	Incidents *incidents.Store
@@ -67,6 +79,9 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	result := Result{ID: hex.EncodeToString(id[:]), IncidentID: item.ID, Status: "failed", CreatedAt: time.Now().UTC()}
+	if v, ok := h.Collector.(RevisionProvider); ok {
+		result.ClusterRevision = v.Revision()
+	}
 	var evidence Evidence
 	var err error
 	if item.Scope == "cluster" {
@@ -81,7 +96,15 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	}
 	result.Evidence = evidence
 	if err == nil {
-		result.Analysis, err = h.Analyzer.Analyze(ctx, item, evidence)
+		if a, ok := h.Analyzer.(ProposalAnalyzer); ok {
+			result.Analysis, result.Candidates, err = a.AnalyzeWithProposals(ctx, item, evidence)
+		} else {
+			result.Analysis, err = h.Analyzer.Analyze(ctx, item, evidence)
+		}
+	}
+	if v, ok := h.Collector.(RevisionProvider); ok && result.ClusterRevision != v.Revision() {
+		err = errors.New("cluster configuration changed during investigation; run it again")
+		result.Candidates = nil
 	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -125,4 +148,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(item)
+}
+
+func (h *Handler) Get(id string) (Result, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	r, ok := h.results[id]
+	return r, ok
 }

@@ -22,11 +22,13 @@ type Manager struct {
 	collector *Collector
 	context   string
 	source    string
+	revision  uint64
 }
 type ConfigStatus struct {
 	Configured bool   `json:"configured"`
 	Context    string `json:"context,omitempty"`
 	Source     string `json:"source,omitempty"`
+	Revision   uint64 `json:"revision"`
 }
 
 func NewManager() *Manager {
@@ -37,7 +39,7 @@ func NewManager() *Manager {
 func (m *Manager) Status() ConfigStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return ConfigStatus{Configured: m.collector != nil, Context: m.context, Source: m.source}
+	return ConfigStatus{Configured: m.collector != nil, Context: m.context, Source: m.source, Revision: m.revision}
 }
 func (m *Manager) Collect(ctx context.Context, namespace, pod string) (investigation.Evidence, error) {
 	m.mu.RLock()
@@ -85,6 +87,7 @@ func (m *Manager) Configure(data []byte) error {
 	m.collector = &Collector{Client: client}
 	m.context = config.CurrentContext
 	m.source = "web"
+	m.revision++
 	m.mu.Unlock()
 	return nil
 }
@@ -163,6 +166,7 @@ func (m *Manager) ConfigureLocal(selected string) error {
 	m.collector = &Collector{Client: client}
 	m.context = selected
 	m.source = "local"
+	m.revision++
 	m.mu.Unlock()
 	return nil
 }
@@ -198,3 +202,5 @@ func (m *Manager) putLocal(w http.ResponseWriter, r *http.Request) {
 	}
 	m.get(w, r)
 }
+
+func (m *Manager) Revision() uint64 { m.mu.RLock(); defer m.mu.RUnlock(); return m.revision }

@@ -2,7 +2,7 @@
 
 English | [简体中文](README_zh-CN.md)
 
-KubePilot is a local-first Kubernetes SRE investigation prototype. Inspect a cluster-wide snapshot or investigate either cluster components or a specific Pod. A CloudWeGo Eino ReAct agent calls an evidence tool and generates an assessment from the collected data. This version is read-only and does not perform remediation.
+KubePilot is a local-first Kubernetes SRE investigation prototype. Inspect a cluster-wide snapshot or investigate either cluster components or a specific Pod. A CloudWeGo Eino ReAct agent calls an evidence tool and generates an assessment from the collected data. The agent can propose a limited Deployment rolling restart for explicit human approval; execution is disabled by default.
 
 ## Prerequisites
 
@@ -48,6 +48,8 @@ Install and start Docker, then run `docker compose up --build` and open http://1
 ## API
 
 - `GET /healthz`
+- `GET /api/settings`: current model name and repair enablement (no API key).
+- `GET /api/remediations`, `POST /api/remediations`, `POST /api/remediations/{id}/execute`: list, prepare, and explicitly approve a single-use repair plan.
 - `GET /api/cluster/overview`: a read-only snapshot of nodes, kube-system Pods, Deployments, DaemonSets, StatefulSets and warning events. Each category inspects at most 100 resources; permission failures and truncation are reported.
 - `GET /api/kubeconfig/contexts`, `PUT /api/kubeconfig/local`: list and select a context from the backend’s standard kubeconfig.
 - `GET /api/kubeconfig`, `PUT /api/kubeconfig`: inspect configuration status or submit `{"kubeconfig":"..."}`; responses never include credentials.
@@ -57,6 +59,14 @@ Install and start Docker, then run `docker compose up --build` and open http://1
 - `GET /api/incidents/{id}/investigations` and `GET /api/investigations/{id}`
 
 Incidents and investigations are stored in process memory and are lost on restart. Collected cluster or Pod evidence, including events and potentially logs, is sent to the configured model during an investigation. Logs may contain sensitive information; confirm that data can be sent before using an external model. The API has no authentication and is intended for local use; do not expose it directly to the public internet. Agent output is advice, not a verified root cause.
+
+## Approved repair operations
+
+The agent can propose a rolling restart of a Deployment identified in a cluster investigation. Select **Review plan**, then review its cluster context, namespace, name, UID, resource version, replica count and proposed reason in **Repair management**. If the model does not make a supported proposal, no repair is available. The proposal is not itself a change.
+
+Write operations are disabled by default. To enable them, set `KUBEPILOT_ENABLE_REMEDIATION=true` before starting the backend or Compose. The user must explicitly approve each plan. The Kubernetes identity needs `get` and `update` on the target Deployment. System namespaces are excluded. A plan expires after 15 minutes, is single-use, and is rejected if the cluster connection or Deployment identity/version changes. The operation updates the Pod template restart annotation and may disrupt service. A **submitted** status means the API accepted the update; it does not verify the rollout or recovery. If the result is unconfirmed, check the Deployment before taking further action.
+
+Plans and execution records are stored only in memory and disappear on restart. There is no user authentication or durable audit log. Do not expose the API to untrusted users or networks; enable write access only for a trusted local setup with appropriately limited Kubernetes RBAC. The model cannot directly execute cluster operations.
 
 ## Verification
 
