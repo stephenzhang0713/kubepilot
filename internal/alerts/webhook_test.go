@@ -16,7 +16,7 @@ func TestWebhookDeduplicatesAndResolves(t *testing.T) {
 	mux := http.NewServeMux()
 	New(store, "secret").Routes(mux)
 	send := func(status, token string) int {
-		body := `{"version":"4","alerts":[{"status":"` + status + `","fingerprint":"abc","startsAt":"2026-01-01T00:00:00Z","labels":{"alertname":"PodDown","namespace":"default","pod":"api"}}]}`
+		body := `{"version":"4","alerts":[{"status":"` + status + `","fingerprint":"abc","startsAt":"2026-01-01T00:00:00Z","labels":{"alertname":"PodDown","namespace":"default","pod":"api","severity":"critical"},"annotations":{"summary":"Pod is unavailable"}}]}`
 		r := httptest.NewRequest("POST", "/api/alerts/alertmanager", strings.NewReader(body))
 		r.Header.Set("Authorization", "Bearer "+token)
 		w := httptest.NewRecorder()
@@ -30,7 +30,7 @@ func TestWebhookDeduplicatesAndResolves(t *testing.T) {
 		t.Fatal("firing rejected")
 	}
 	items := store.PendingAlerts()
-	if len(items) != 1 || items[0].Scope != "pod" {
+	if len(items) != 1 || items[0].Scope != "pod" || items[0].AlertSeverity != "critical" || items[0].AlertSummary != "Pod is unavailable" {
 		t.Fatalf("unexpected incidents: %+v", items)
 	}
 	if send("resolved", "secret") != 204 || send("firing", "secret") != 204 {

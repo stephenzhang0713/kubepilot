@@ -27,6 +27,7 @@ type alert struct {
 	Fingerprint string            `json:"fingerprint"`
 	StartsAt    time.Time         `json:"startsAt"`
 	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
 }
 
 func (a *Receiver) Routes(mux *http.ServeMux) {
@@ -60,7 +61,15 @@ func (a *Receiver) receive(w http.ResponseWriter, r *http.Request) {
 		if title == "" {
 			title = "Alertmanager alert"
 		}
-		if _, _, err := a.Store.UpsertAlert(item.Fingerprint, title, item.Labels["namespace"], item.Labels["pod"], item.Status, item.StartsAt); err != nil {
+		severity := []rune(item.Labels["severity"])
+		if len(severity) > 64 {
+			severity = severity[:64]
+		}
+		summary := []rune(item.Annotations["summary"])
+		if len(summary) > 1000 {
+			summary = append(summary[:1000], []rune(" [truncated]")...)
+		}
+		if _, _, err := a.Store.UpsertAlert(item.Fingerprint, title, item.Labels["namespace"], item.Labels["pod"], item.Status, item.StartsAt, incidents.AlertContext{Severity: string(severity), Summary: string(summary)}); err != nil {
 			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
 			return
 		}

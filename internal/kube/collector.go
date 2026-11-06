@@ -47,9 +47,14 @@ func (c *Collector) Collect(ctx context.Context, namespace, pod string) (investi
 	}
 	// Only status and selected metadata are exposed to avoid leaking pod environment variables.
 	data, _ := json.MarshalIndent(struct {
-		Name   string           `json:"name"`
-		Status corev1.PodStatus `json:"status"`
-	}{p.Name, p.Status}, "", "  ")
+		Name      string                  `json:"name"`
+		Namespace string                  `json:"namespace"`
+		UID       string                  `json:"uid"`
+		Node      string                  `json:"node"`
+		CreatedAt metav1.Time             `json:"createdAt"`
+		Owners    []metav1.OwnerReference `json:"owners,omitempty"`
+		Status    corev1.PodStatus        `json:"status"`
+	}{p.Name, p.Namespace, string(p.UID), p.Spec.NodeName, p.CreationTimestamp, p.OwnerReferences, p.Status}, "", "  ")
 	result.Pod = string(data)
 	events, err := c.Client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("involvedObject.uid", string(p.UID)).String(), Limit: 100})
 	if err != nil {
@@ -57,6 +62,9 @@ func (c *Collector) Collect(ctx context.Context, namespace, pod string) (investi
 	} else {
 		data, _ = json.MarshalIndent(events.Items, "", "  ")
 		result.Events = string(data)
+		if events.Continue != "" {
+			result.Warnings = append(result.Warnings, "events truncated: only the first 100 returned")
+		}
 	}
 	var logs []string
 	for _, container := range p.Spec.Containers {
@@ -71,6 +79,9 @@ func (c *Collector) Collect(ctx context.Context, namespace, pod string) (investi
 		_ = stream.Close()
 		if readErr != nil {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("logs for %s: %v", container.Name, readErr))
+		}
+		if int64(len(b)) == limit {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("logs for %s may be truncated at %d bytes", container.Name, limit))
 		}
 		logs = append(logs, container.Name+":\n"+string(b))
 	}

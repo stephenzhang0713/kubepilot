@@ -24,6 +24,12 @@ type Incident struct {
 	AlertStartsAt      time.Time `json:"alertStartsAt"`
 	AlertStatus        string    `json:"alertStatus,omitempty"`
 	AlertInvestigation string    `json:"alertInvestigation,omitempty"`
+	AlertSeverity      string    `json:"alertSeverity,omitempty"`
+	AlertSummary       string    `json:"alertSummary,omitempty"`
+}
+type AlertContext struct {
+	Severity string
+	Summary  string
 }
 
 type Persistence interface {
@@ -69,7 +75,7 @@ func (s *Store) save(item Incident) error {
 }
 
 // UpsertAlert deduplicates repeated notifications for the same alert occurrence.
-func (s *Store) UpsertAlert(fingerprint, title, namespace, pod, status string, startsAt time.Time) (Incident, bool, error) {
+func (s *Store) UpsertAlert(fingerprint, title, namespace, pod, status string, startsAt time.Time, details ...AlertContext) (Incident, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, item := range s.items {
@@ -96,6 +102,10 @@ func (s *Store) UpsertAlert(fingerprint, title, namespace, pod, status string, s
 		scope = "pod"
 	}
 	item := Incident{ID: hex.EncodeToString(id[:]), Title: title, Scope: scope, Namespace: namespace, Pod: pod, CreatedAt: time.Now().UTC(), AlertFingerprint: fingerprint, AlertStartsAt: startsAt, AlertStatus: status, AlertInvestigation: "pending"}
+	if len(details) > 0 {
+		item.AlertSeverity = details[0].Severity
+		item.AlertSummary = details[0].Summary
+	}
 	if err := s.save(item); err != nil {
 		return Incident{}, false, err
 	}

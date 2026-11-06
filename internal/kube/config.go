@@ -204,3 +204,9 @@ func (m *Manager) putLocal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (m *Manager) Revision() uint64 { m.mu.RLock(); defer m.mu.RUnlock(); return m.revision }
+
+func (m *Manager) InvestigationContext() (string, uint64) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.context, m.revision
+}

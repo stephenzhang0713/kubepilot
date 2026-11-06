@@ -1,6 +1,10 @@
 export type Language='zh'|'en';
 export type Theme='dark'|'light';
 const translations:Record<string,string> = {
+  "Investigation steps": "调查步骤",
+  "get_kubernetes_evidence": "读取调查上下文",
+  "propose_deployment_restart": "提出重启建议",
+  "proposed": "已提出建议",
   "Queued": "等待调查",
   "firing": "告警中",
   "resolved": "已恢复",

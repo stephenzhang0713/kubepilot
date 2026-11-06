@@ -16,12 +16,14 @@ import (
 )
 
 type Evidence struct {
-	Cluster  string   `json:"cluster,omitempty"`
-	Pod      string   `json:"pod"`
-	Events   string   `json:"events"`
-	Logs     string   `json:"logs"`
-	Warnings []string `json:"warnings"`
-	Metrics  string   `json:"metrics,omitempty"`
+	CollectedAt    string   `json:"collectedAt,omitempty"`
+	ClusterContext string   `json:"clusterContext,omitempty"`
+	Cluster        string   `json:"cluster,omitempty"`
+	Pod            string   `json:"pod"`
+	Events         string   `json:"events"`
+	Logs           string   `json:"logs"`
+	Warnings       []string `json:"warnings"`
+	Metrics        string   `json:"metrics,omitempty"`
 }
 type Collector interface {
 	Collect(context.Context, string, string) (Evidence, error)
@@ -38,20 +40,30 @@ type Candidate struct {
 type ProposalAnalyzer interface {
 	AnalyzeWithProposals(context.Context, incidents.Incident, Evidence) (string, []Candidate, error)
 }
+type TraceEvent struct {
+	Time    time.Time `json:"time"`
+	Tool    string    `json:"tool"`
+	Outcome string    `json:"outcome"`
+}
+type HarnessAnalyzer interface {
+	AnalyzeWithTrace(context.Context, incidents.Incident, Evidence) (string, []Candidate, []TraceEvent, error)
+}
 type RevisionProvider interface{ Revision() uint64 }
+type ContextProvider interface{ InvestigationContext() (string, uint64) }
 type Analyzer interface {
 	Analyze(context.Context, incidents.Incident, Evidence) (string, error)
 }
 type Result struct {
-	ID              string      `json:"id"`
-	ClusterRevision uint64      `json:"clusterRevision"`
-	Candidates      []Candidate `json:"candidates,omitempty"`
-	IncidentID      string      `json:"incidentId"`
-	Status          string      `json:"status"`
-	Evidence        Evidence    `json:"evidence"`
-	Analysis        string      `json:"analysis,omitempty"`
-	Error           string      `json:"error,omitempty"`
-	CreatedAt       time.Time   `json:"createdAt"`
+	ID              string       `json:"id"`
+	ClusterRevision uint64       `json:"clusterRevision"`
+	Candidates      []Candidate  `json:"candidates,omitempty"`
+	IncidentID      string       `json:"incidentId"`
+	Status          string       `json:"status"`
+	Evidence        Evidence     `json:"evidence"`
+	Analysis        string       `json:"analysis,omitempty"`
+	Error           string       `json:"error,omitempty"`
+	CreatedAt       time.Time    `json:"createdAt"`
+	Trace           []TraceEvent `json:"trace,omitempty"`
 }
 type Handler struct {
 	Audit       *audit.Journal
@@ -106,7 +118,10 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	result := Result{ID: hex.EncodeToString(id[:]), IncidentID: item.ID, Status: "failed", CreatedAt: time.Now().UTC()}
-	if v, ok := h.Collector.(RevisionProvider); ok {
+	var clusterContext string
+	if v, ok := h.Collector.(ContextProvider); ok {
+		clusterContext, result.ClusterRevision = v.InvestigationContext()
+	} else if v, ok := h.Collector.(RevisionProvider); ok {
 		result.ClusterRevision = v.Revision()
 	}
 	var evidence Evidence
@@ -121,6 +136,7 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 	} else {
 		evidence, err = h.Collector.Collect(ctx, item.Namespace, item.Pod)
 	}
+	evidence.ClusterContext = clusterContext
 	result.Evidence = evidence
 	if err == nil {
 		if h.Metrics != nil {
@@ -130,9 +146,12 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 			} else {
 				evidence.Metrics = metrics
 			}
-			result.Evidence = evidence
 		}
-		if a, ok := h.Analyzer.(ProposalAnalyzer); ok {
+		evidence.CollectedAt = time.Now().UTC().Format(time.RFC3339)
+		result.Evidence = evidence
+		if a, ok := h.Analyzer.(HarnessAnalyzer); ok {
+			result.Analysis, result.Candidates, result.Trace, err = a.AnalyzeWithTrace(ctx, item, evidence)
+		} else if a, ok := h.Analyzer.(ProposalAnalyzer); ok {
 			result.Analysis, result.Candidates, err = a.AnalyzeWithProposals(ctx, item, evidence)
 		} else {
 			result.Analysis, err = h.Analyzer.Analyze(ctx, item, evidence)

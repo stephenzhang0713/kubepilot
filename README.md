@@ -37,6 +37,12 @@ Open the Vite URL shown in the terminal (default: http://127.0.0.1:5173). Use **
 
 Set `KUBEPILOT_INSPECTION_INTERVAL=5m` before starting the backend to periodically collect a read-only cluster overview while it runs (minimum `1m`; disabled by default). The overview page shows the latest attempt and snapshot. Failed, unauthorized or truncated checks do not establish cluster health. Switching cluster configuration invalidates the old snapshot. Inspections do not automatically invoke the model, create incidents or execute repairs. Results are kept in memory and lost on restart. Docker Compose accepts the same environment variable.
 
+## Investigation context and steps
+
+The agent receives a versioned context packet containing the incident scope, alert severity and summary when supplied, cluster context, collection completion time, Pod ownership and node, and separate cluster, Pod, event, log and metric sources. It includes troubleshooting guidance, missing sources and collection warnings. Each source has an independent size budget and a truncation indicator; the raw evidence displayed in the UI may be longer than what the model sees.
+
+The agent is instructed to distinguish observations from hypotheses, cite sources, describe gaps and recommend verification, but these instructions do not guarantee a correct conclusion. Investigation steps record evidence and proposal tool outcomes; they do not capture model reasoning, the complete model exchange or every collection step. The agent is limited to eight steps, and repairs remain subject to existing validation and human approval. Results and evidence are persisted; confirm data can be sent before using an external model.
+
 ## Verify a restart rollout
 
 After approving and submitting a Deployment restart, use **Check rollout** in repair management to fetch fresh Deployment status. Verification checks the cluster connection, UID, restart marker, submitted generation, observed generation, and replica counts. It requires a positive replica count unchanged since approval, with updated, ready, available, and total replicas matching the desired count. This is a point-in-time check and can be repeated.
