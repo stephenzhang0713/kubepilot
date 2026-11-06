@@ -7,6 +7,8 @@ services:
       MODEL_NAME: ${MODEL_NAME:-qwen2.5:7b}
       MODEL_API_KEY: ${MODEL_API_KEY:-ollama}
       KUBEPILOT_ENABLE_REMEDIATION: ${KUBEPILOT_ENABLE_REMEDIATION:-false}
+    volumes:
+      - audit-data:/app/data
     extra_hosts:
       - host.docker.internal:host-gateway
   web:
@@ -15,3 +17,6 @@ services:
       - "127.0.0.1:3000:80"
     depends_on:
       - api
+
+volumes:
+  audit-data:

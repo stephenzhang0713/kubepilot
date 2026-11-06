@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
@@ -95,8 +96,8 @@ func (j *Journal) list(w http.ResponseWriter, r *http.Request) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	events := make([]Event, 0, len(j.events))
-	for i := len(j.events) - 1; i >= 0; i-- {
-		events = append(events, j.events[i])
+	for _, v := range slices.Backward(j.events) {
+		events = append(events, v)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

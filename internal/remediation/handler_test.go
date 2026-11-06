@@ -6,6 +6,9 @@ import (
 	json "encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+
+	"github.com/stephenzhang0713/kubepilot/internal/audit"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -145,5 +148,26 @@ func TestRejectPreventsExecution(t *testing.T) {
 	p.execute(w, r)
 	if w.Code != http.StatusConflict || runner.calls.Load() != 0 {
 		t.Fatal("rejected plan executed")
+	}
+}
+
+func TestAuditFailureBlocksRestart(t *testing.T) {
+	journal, err := audit.Open(filepath.Join(t.TempDir(), "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatal(err)
+	}
+	runner := &stubRunner{}
+	p := &Plans{Runner: runner, Audit: journal, Enabled: true, items: map[string]Plan{"plan": {ID: "plan", Status: "pending", CreatedAt: time.Now()}}}
+	r := httptest.NewRequest("POST", "/api/remediations/plan/execute", strings.NewReader(`{"confirm":"restart"}`))
+	r.SetPathValue("id", "plan")
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-KubePilot-Confirm", "restart-deployment")
+	w := httptest.NewRecorder()
+	p.execute(w, r)
+	if w.Code != http.StatusServiceUnavailable || runner.calls.Load() != 0 {
+		t.Fatalf("audit failure allowed execution: %d", w.Code)
 	}
 }

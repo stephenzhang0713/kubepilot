@@ -37,7 +37,13 @@ Open the Vite URL shown in the terminal (default: http://127.0.0.1:5173). Use **
 
 After approving and submitting a Deployment restart, use **Check rollout** in repair management to fetch fresh Deployment status. Verification checks the cluster connection, UID, restart marker, submitted generation, observed generation, and replica counts. It requires a positive replica count unchanged since approval, with updated, ready, available, and total replicas matching the desired count. This is a point-in-time check and can be repeated.
 
-This verifies only the Deployment controller's rollout status, not application health or resolution of the original incident. There is no automatic rollback. Incidents, plans, and verification results are held in backend memory and lost on restart; they are not a persistent audit log.
+This verifies only the Deployment controller's rollout status, not application health or resolution of the original incident. There is no automatic rollback. Full incidents, plans, and verification results are held in backend memory and lost on restart; operation milestones are recorded locally as described below.
+
+## Activity trace
+
+The activity trace records incident creation, investigation completion, repair plans, approvals, submission outcomes, and rollout checks. The default file is `data/audit.jsonl` relative to the backend working directory; set `KUBEPILOT_AUDIT_FILE` to change it. Docker Compose stores it in the `audit-data` volume. The file contains target names and resource status: restrict access and back it up. Do not share one journal between backend processes.
+
+An approval must be written and synced before a restart is submitted. If recording the result fails after submission, inspect the target Deployment before any retry. The backend refuses to start on a corrupt or incomplete journal until an administrator inspects it. The journal does not contain full investigation evidence or user identities, and is not tamper-proof or a substitute for authenticated compliance auditing.
 
 ## Local clusters
 
@@ -54,6 +60,7 @@ Install and start Docker, then run `docker compose up --build` and open http://1
 ## API
 
 - `GET /healthz`
+- `GET /api/audit`: list local operation milestones, newest first.
 - `GET /api/settings`: current model name and repair enablement (no API key).
 - `GET /api/remediations`, `POST /api/remediations`, `POST /api/remediations/{id}/execute`: list, prepare, and explicitly approve a single-use repair plan.
 - `GET /api/cluster/overview`: a read-only snapshot of nodes, kube-system Pods, Deployments, DaemonSets, StatefulSets and warning events. Each category inspects at most 100 resources; permission failures and truncation are reported.
@@ -72,7 +79,13 @@ The agent can propose a rolling restart of a Deployment identified in a cluster 
 
 Write operations are disabled by default. To enable them, set `KUBEPILOT_ENABLE_REMEDIATION=true` before starting the backend or Compose. The user must explicitly approve each plan. The Kubernetes identity needs `get` and `update` on the target Deployment. System namespaces are excluded. A plan expires after 15 minutes, is single-use, and is rejected if the cluster connection or Deployment identity/version changes. The operation updates the Pod template restart annotation and may disrupt service. A **submitted** status means the API accepted the update; it does not verify the rollout or recovery. If the result is unconfirmed, check the Deployment before taking further action.
 
-Plans and execution records are stored only in memory and disappear on restart. There is no user authentication or durable audit log. Do not expose the API to untrusted users or networks; enable write access only for a trusted local setup with appropriately limited Kubernetes RBAC. The model cannot directly execute cluster operations.
+Full plans and execution state are stored in memory and disappear on restart. There is no user authentication. Do not expose the API to untrusted users or networks; enable write access only for a trusted local setup with appropriately limited Kubernetes RBAC. The model cannot directly execute cluster operations.
+
+## Local activity journal
+
+Milestones such as incident creation, investigation completion, repair approval and results are appended to `data/audit.jsonl` and shown in **Activity trace** across restarts. Set `KUBEPILOT_AUDIT_FILE` to change the path; Compose uses the `audit-data` volume by default. The backend must be able to write the file: it will not start if the journal cannot be opened, and a repair is blocked if its approval cannot be recorded. If recording a submitted result fails, inspect the Deployment before deciding what to do next.
+
+The journal contains metadata such as timestamps, status, identifiers and repair targets, but not full evidence, logs or user identities. It is not tamper-proof and cannot restore investigations or repair plans. Protect and back up the file as appropriate. Stop the backend before rotating it: the process keeps the file open. A corrupt or incomplete final record prevents startup.
 
 ## Verification
 
