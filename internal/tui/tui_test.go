@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"github.com/stephenzhang0713/kubepilot/internal/agent"
 	"github.com/stephenzhang0713/kubepilot/internal/config"
 	"github.com/stephenzhang0713/kubepilot/internal/investigation"
@@ -162,5 +163,47 @@ func TestViewFitsTerminalSizes(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestDashboardShowsFindingsAndFits(t *testing.T) {
+	for _, width := range []int{90, 120, 160, 220} {
+		m := New(http.NewServeMux(), "model", false)
+		m.width = width
+		m.height = 40
+		m.overview = &kube.Overview{Sections: []kube.Section{
+			{Name: "nodes", State: "ok", Checked: 1},
+			{Name: "deployments", State: "attention", Checked: 2, Findings: []kube.Finding{{Resource: "default/api", Detail: "0/2 replicas available"}}},
+			{Name: "events", State: "unknown", Error: "permission denied"},
+		}}
+		output := m.View().Content
+		for _, text := range []string{"RESOURCE CHECKS", "FINDINGS & GAPS", "default/api", "permission denied"} {
+			if !strings.Contains(output, text) {
+				t.Errorf("width %d: missing %q", width, text)
+			}
+		}
+		for _, line := range strings.Split(output, "\n") {
+			if lipgloss.Width(line) > width {
+				t.Errorf("width %d: line overflows: %d", width, lipgloss.Width(line))
+				break
+			}
+		}
+	}
+}
+func TestDashboardScrollsLongFindings(t *testing.T) {
+	m := New(http.NewServeMux(), "model", false)
+	m.width = 100
+	m.height = 24
+	section := kube.Section{Name: "pods", State: "attention"}
+	for i := range 20 {
+		section.Findings = append(section.Findings, kube.Finding{Resource: fmt.Sprintf("ns/pod-%02d", i), Detail: "not ready"})
+	}
+	m.overview = &kube.Overview{Sections: []kube.Section{section}}
+	if m.maxOffset() == 0 {
+		t.Fatal("long findings must be scrollable")
+	}
+	m.offset = m.maxOffset()
+	if !strings.Contains(m.View().Content, "ns/pod-19") {
+		t.Fatal("last finding is not reachable")
 	}
 }

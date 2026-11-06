@@ -382,9 +382,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j":
 				m.offset = min(m.maxOffset(), m.offset+1)
 			case "pgup":
-				m.offset = max(0, m.offset-max(1, m.height-10))
+				m.offset = max(0, m.offset-m.viewportHeight())
 			case "pgdown":
-				m.offset = min(m.maxOffset(), m.offset+max(1, m.height-10))
+				m.offset = min(m.maxOffset(), m.offset+m.viewportHeight())
 			case "a":
 				if len(m.plans) > 0 && m.plans[m.selected].Status == "pending" {
 					m.mode = "confirm"
@@ -412,9 +412,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "down", "j":
 				m.offset = min(m.maxOffset(), m.offset+1)
 			case "pgup":
-				m.offset = max(0, m.offset-max(1, m.height-10))
+				m.offset = max(0, m.offset-m.viewportHeight())
 			case "pgdown":
-				m.offset = min(m.maxOffset(), m.offset+max(1, m.height-10))
+				m.offset = min(m.maxOffset(), m.offset+m.viewportHeight())
 			case "[":
 				m.candidate = max(0, m.candidate-1)
 			case "]":
@@ -476,9 +476,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.offset = min(m.maxOffset(), m.offset+1)
 			}
 		case "pgup":
-			m.offset = max(0, m.offset-max(1, m.height-10))
+			m.offset = max(0, m.offset-m.viewportHeight())
 		case "pgdown":
-			m.offset = min(m.maxOffset(), m.offset+max(1, m.height-10))
+			m.offset = min(m.maxOffset(), m.offset+m.viewportHeight())
 		case "enter":
 			if m.page == chatPage {
 				if m.result == nil {

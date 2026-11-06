@@ -49,11 +49,17 @@ func state(s string) string {
 		return muted.Render(strings.ToUpper(s))
 	}
 }
-func (m Model) maxOffset() int {
-	width := max(1, m.width-8)
-	text := lipgloss.NewStyle().Width(width).Render(clean(ansi.Strip(m.content())))
-	return max(0, len(strings.Split(text, "\n"))-max(1, m.height-10))
+func (m Model) viewportHeight() int { return max(1, m.height-8) }
+func (m Model) viewportLines() []string {
+	width := max(1, m.width-6)
+	if m.page == overviewPage && m.mode == "" && m.width >= 90 && m.height >= 22 {
+		return strings.Split(m.dashboard(width), "\n")
+	}
+	text := lipgloss.NewStyle().Width(width).Render(styleContent(clean(ansi.Strip(m.content()))))
+	return strings.Split(text, "\n")
 }
+func (m Model) maxOffset() int { return max(0, len(m.viewportLines())-m.viewportHeight()) }
+
 func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
@@ -84,16 +90,13 @@ func (m Model) render() string {
 		nav = fmt.Sprintf("[1] [2] [3] [4] [5]  %s", pages[m.page])
 	}
 	var headerLines []string
-	for _, line := range strings.Split(header, "\n") {
+	for line := range strings.SplitSeq(header, "\n") {
 		headerLines = append(headerLines, ansi.Truncate(line, m.width-2, "…"))
 	}
 	header = strings.Join(headerLines, "\n")
 	nav = ansi.Truncate(nav, m.width-2, "…")
-	content := m.content()
-	// Wrap before clipping so long diagnostics remain accessible with scrolling.
-	wrapped := lipgloss.NewStyle().Width(max(1, width-4)).Render(styleContent(clean(ansi.Strip(content))))
-	lines := strings.Split(wrapped, "\n")
-	available := max(1, m.height-10)
+	lines := m.viewportLines()
+	available := m.viewportHeight()
 	offset := min(max(0, m.offset), max(0, len(lines)-available))
 	if m.mode == "chat-input" {
 		offset = max(0, len(lines)-available)
@@ -103,7 +106,8 @@ func (m Model) render() string {
 	}
 	end := min(len(lines), offset+available)
 	body := strings.Join(lines[offset:end], "\n")
-	body = lipgloss.NewStyle().Width(width-2).Height(available).Padding(0, 1).Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#34465C")).Render(body)
+	body = lipgloss.NewStyle().Width(width).Height(available).Padding(0, 1).Render(body)
+
 	status := m.status
 	if m.busy {
 		status = []string{"◐", "◓", "◑", "◒"}[m.frame%4] + " " + m.busyLabel + "…"
@@ -386,9 +390,9 @@ func styleContent(content string) string {
 		switch {
 		case strings.HasPrefix(trim, "› "):
 			lines[i] = highlight.Render(line)
-		case strings.HasPrefix(trim, "▲") || strings.Contains(trim, "ATTENTION"):
+		case strings.HasPrefix(trim, "▲"):
 			lines[i] = warning.Render(line)
-		case strings.HasPrefix(trim, "?") || strings.Contains(trim, "UNKNOWN"):
+		case strings.HasPrefix(trim, "?"):
 			lines[i] = bad.Render(line)
 		case strings.HasPrefix(trim, "●") || strings.HasPrefix(trim, "✦"):
 			lines[i] = highlight.Render(line)
