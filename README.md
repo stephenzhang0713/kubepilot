@@ -33,6 +33,10 @@ npm run dev
 
 Open the Vite URL shown in the terminal (default: http://127.0.0.1:5173). Use **Connect cluster → Local kubeconfig** to select a context, or upload an embedded kubeconfig, then refresh the cluster snapshot or select cluster or Pod scope and run an investigation. If a local kubeconfig was loaded at startup, you can also use it directly. The API listens on `127.0.0.1:8080` by default. If the local configuration is unavailable, check `kubectl config current-context` or configure it in the browser.
 
+## Scheduled inspection
+
+Set `KUBEPILOT_INSPECTION_INTERVAL=5m` before starting the backend to periodically collect a read-only cluster overview while it runs (minimum `1m`; disabled by default). The overview page shows the latest attempt and snapshot. Failed, unauthorized or truncated checks do not establish cluster health. Switching cluster configuration invalidates the old snapshot. Inspections do not automatically invoke the model, create incidents or execute repairs. Results are kept in memory and lost on restart. Docker Compose accepts the same environment variable.
+
 ## Verify a restart rollout
 
 After approving and submitting a Deployment restart, use **Check rollout** in repair management to fetch fresh Deployment status. Verification checks the cluster connection, UID, restart marker, submitted generation, observed generation, and replica counts. It requires a positive replica count unchanged since approval, with updated, ready, available, and total replicas matching the desired count. This is a point-in-time check and can be repeated.
@@ -60,6 +64,7 @@ Install and start Docker, then run `docker compose up --build` and open http://1
 ## API
 
 - `GET /healthz`
+- `GET /api/inspection`: get scheduled inspection configuration, latest attempt and snapshot.
 - `GET /api/audit`: list local operation milestones, newest first.
 - `GET /api/settings`: current model name and repair enablement (no API key).
 - `GET /api/remediations`, `POST /api/remediations`, `POST /api/remediations/{id}/execute`: list, prepare, and explicitly approve a single-use repair plan.

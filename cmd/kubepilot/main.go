@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"encoding/json/v2"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/stephenzhang0713/kubepilot/internal/agent"
 	"github.com/stephenzhang0713/kubepilot/internal/audit"
 	"github.com/stephenzhang0713/kubepilot/internal/incidents"
+	"github.com/stephenzhang0713/kubepilot/internal/inspection"
 	"github.com/stephenzhang0713/kubepilot/internal/investigation"
 	"github.com/stephenzhang0713/kubepilot/internal/kube"
 	"github.com/stephenzhang0713/kubepilot/internal/remediation"
@@ -23,10 +25,20 @@ func main() {
 	}
 	defer journal.Close()
 	collector := kube.NewManager()
+	var interval time.Duration
+	if value := os.Getenv("KUBEPILOT_INSPECTION_INTERVAL"); value != "" {
+		interval, err = time.ParseDuration(value)
+		if err != nil || interval < time.Minute {
+			log.Fatal("KUBEPILOT_INSPECTION_INTERVAL must be a duration of at least 1m")
+		}
+	}
 	analyzer := agent.Analyzer{BaseURL: cmp.Or(os.Getenv("MODEL_BASE_URL"), "http://localhost:11434/v1"), APIKey: cmp.Or(os.Getenv("MODEL_API_KEY"), "ollama"), Model: cmp.Or(os.Getenv("MODEL_NAME"), "qwen2.5:7b")}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	collector.Routes(mux)
+	inspector := inspection.New(collector, interval)
+	inspector.Routes(mux)
+	go inspector.Run(context.Background())
 	journal.Routes(mux)
 	mux.HandleFunc("GET /api/settings", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

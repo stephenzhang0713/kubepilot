@@ -33,6 +33,10 @@ npm run dev
 
 打开终端显示的 Vite 地址（默认 http://127.0.0.1:5173），点击 **Connect cluster → Local kubeconfig** 选择本机 context，或上传内嵌凭据的 kubeconfig，然后刷新集群概览，或选择集群、Pod 范围并运行调查。如果后端启动时已加载本地 kubeconfig，也可以直接使用。API 默认只监听 `127.0.0.1:8080`。如果本地配置不可用，请检查 `kubectl config current-context`，或在网页中配置。
 
+## 定时巡检
+
+设置 `KUBEPILOT_INSPECTION_INTERVAL=5m` 并启动后端，可在进程运行期间定时执行只读集群概览检查（最小间隔为 `1m`，默认关闭）。概览页显示最近一次巡检的状态和快照；连接失败、权限不足或结果截断不代表集群健康。切换集群配置后，旧快照不会作为当前结果展示。巡检不会自动调用模型、创建事件或执行修复；结果仅保存在内存，重启后丢失。Docker Compose 同样支持该环境变量。
+
 ## 修复后的滚动更新验证
 
 批准并提交 Deployment 滚动重启后，可在修复管理中点击“检查滚动更新”。KubePilot 会重新读取目标 Deployment，核对集群连接、UID、本次重启标记、提交时的 generation、控制器观察到的 generation 和副本状态。只有预期副本数大于零且与审批时一致，更新、就绪、可用和总副本数均满足预期时，才显示滚动更新已验证。验证为一次即时检查，可再次手动检查。
@@ -60,6 +64,7 @@ npm run dev
 ## API
 
 - `GET /healthz`
+- `GET /api/inspection`：查看定时巡检配置、最近尝试及快照。
 - `GET /api/audit`：按最新优先读取本地操作里程碑。
 - `GET /api/settings`：查看当前模型名称与修复开关，不返回 API 密钥。
 - `GET /api/remediations`、`POST /api/remediations`、`POST /api/remediations/{id}/execute`：列出、准备并明确批准一次性修复计划。

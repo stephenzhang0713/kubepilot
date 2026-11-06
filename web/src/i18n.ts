@@ -1,6 +1,18 @@
 export type Language='zh'|'en';
 export type Theme='dark'|'light';
 const translations:Record<string,string> = {
+  "Scheduled inspection": "定时巡检",
+  "Read-only cluster checks run while the backend is running.": "后端运行期间定时执行只读集群检查。",
+  "Scheduled inspection is disabled.": "定时巡检未启用。",
+  "Unavailable": "不可用",
+  "Interval": "间隔",
+  "Last attempt": "最近尝试",
+  "Latest inspection": "最近巡检",
+  "sections need attention": "项需要关注",
+  "sections unknown": "项状态未知",
+  "View inspection snapshot": "查看巡检快照",
+  "Set KUBEPILOT_INSPECTION_INTERVAL to at least 1m and restart the backend to enable.": "设置 KUBEPILOT_INSPECTION_INTERVAL（至少 1m）并重启后端以启用。",
+  "Inspections do not trigger investigations or repairs. Results are kept in memory.": "巡检不会自动触发调查或修复，结果保存在内存中。",
   "Investigate with your SRE agent": "使用 SRE Agent 调查问题",
   "Turn a signal into an evidence-backed assessment and review next steps.": "从异常信号出发，获取基于证据的分析并审查后续操作。",
   "Start investigation →": "开始调查 →",
