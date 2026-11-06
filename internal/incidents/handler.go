@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/stephenzhang0713/kubepilot/internal/audit"
 )
 
 type Incident struct {
@@ -23,6 +25,7 @@ type Incident struct {
 type Store struct {
 	mu    sync.RWMutex
 	items map[string]Incident
+	Audit *audit.Journal
 }
 
 func New() *Store { return &Store{items: make(map[string]Incident)} }
@@ -60,6 +63,12 @@ func (s *Store) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	item := Incident{Scope: input.Scope, ID: hex.EncodeToString(id[:]), Title: input.Title, Namespace: input.Namespace, Pod: input.Pod, CreatedAt: time.Now().UTC()}
+	if s.Audit != nil {
+		if err := s.Audit.Append(audit.Event{Kind: "incident.created", IncidentID: item.ID, Status: item.Scope}); err != nil {
+			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	s.mu.Lock()
 	s.items[item.ID] = item
 	s.mu.Unlock()

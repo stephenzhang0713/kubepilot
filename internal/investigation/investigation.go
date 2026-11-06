@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stephenzhang0713/kubepilot/internal/audit"
 	"github.com/stephenzhang0713/kubepilot/internal/incidents"
 )
 
@@ -52,6 +53,7 @@ type Result struct {
 	CreatedAt       time.Time   `json:"createdAt"`
 }
 type Handler struct {
+	Audit     *audit.Journal
 	Incidents *incidents.Store
 	Collector Collector
 	Analyzer  Analyzer
@@ -114,6 +116,12 @@ func (h *Handler) run(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		result.Status = "completed"
+	}
+	if h.Audit != nil {
+		if err := h.Audit.Append(audit.Event{Kind: "investigation.completed", IncidentID: item.ID, InvestigationID: result.ID, Status: result.Status}); err != nil {
+			http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
+			return
+		}
 	}
 	h.mu.Lock()
 	h.results[result.ID] = result

@@ -10,7 +10,7 @@ import (
 )
 
 func TestRestartBoundToClusterAndObjectVersion(t *testing.T) {
-	client := fake.NewSimpleClientset(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default", UID: types.UID("uid-1"), ResourceVersion: "10"}})
+	client := fake.NewSimpleClientset(&appsv1.Deployment{Name: "api", Namespace: "default", UID: types.UID("uid-1"), ResourceVersion: "10"})
 	m := &Manager{collector: &Collector{Client: client}, context: "test", revision: 3}
 	snapshot, err := m.PrepareRestart(t.Context(), 3, "default", "api")
 	if err != nil {
@@ -42,7 +42,7 @@ func TestRestartBoundToClusterAndObjectVersion(t *testing.T) {
 
 func TestVerifyRestartRequiresFreshMatchingRollout(t *testing.T) {
 	replicas := int32(2)
-	d := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default", UID: types.UID("uid-1"), ResourceVersion: "12", Generation: 4}, Spec: appsv1.DeploymentSpec{Replicas: &replicas}}
+	d := &appsv1.Deployment{Name: "api", Namespace: "default", UID: types.UID("uid-1"), ResourceVersion: "12", Generation: 4, Spec: appsv1.DeploymentSpec{Replicas: &replicas}}
 	d.Spec.Template.Annotations = map[string]string{"kubepilot.io/restart-token": "plan-1"}
 	d.Status = appsv1.DeploymentStatus{ObservedGeneration: 4, Replicas: 2, UpdatedReplicas: 2, ReadyReplicas: 2, AvailableReplicas: 2}
 	client := fake.NewSimpleClientset(d)
