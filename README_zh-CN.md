@@ -6,12 +6,16 @@ KubePilot 是本地运行的 Kubernetes 故障定位助手：先检查集群资�
 
 ## 快速开始
 
-需要 Go 1.27、可访问的 Kubernetes 集群、本地 kubeconfig，以及支持工具调用的 OpenAI 兼容模型。例如启动 Ollama 后运行 `ollama pull qwen2.5:7b`。
+在 macOS 或 Linux（Intel/AMD 或 ARM64）上安装最新发布版本：
 
 ```sh
-go build -o kubepilot ./cmd/kubepilot
-./kubepilot
+curl -fsSL https://raw.githubusercontent.com/stephenzhang0713/kubepilot/main/scripts/install.sh | sh
+kubepilot
 ```
+
+安装脚本会校验下载文件，并默认安装到 `~/.local/bin`。请确保该目录在 `PATH` 中，也可以通过 `KUBEPILOT_INSTALL_DIR` 指定其他可写目录。首次发布版本后，此安装命令即可使用；只有从源码构建才需要 Go。
+
+运行还需要可访问的 Kubernetes 集群、本地 kubeconfig，以及支持工具调用的 OpenAI 兼容模型。例如启动 Ollama 后运行 `ollama pull qwen2.5:7b`。
 
 按 `5` 打开设置，配置模型和 kubeconfig。默认读取本地 kubeconfig 当前 context；按 `c` 或在设置中选择 context，按 `r` 刷新集群检查。更改 kubeconfig 路径后需要重启，再选择新配置中的 context。
 

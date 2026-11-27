@@ -3,15 +3,15 @@ module github.com/stephenzhang0713/kubepilot
 go 1.27
 
 require (
-	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/bubbletea/v2 v2.2.0
+	charm.land/lipgloss/v2 v2.1.1
 	github.com/charmbracelet/colorprofile v0.4.3
-	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/charmbracelet/x/ansi v0.12.0
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20261101151554-27ecf3e4d454
 	github.com/cloudwego/eino v0.9.22
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.13
-	k8s.io/api v0.37.2
-	k8s.io/apimachinery v0.37.2
+	k8s.io/api v0.37.3
+	k8s.io/apimachinery v0.37.3
 	k8s.io/client-go v0.37.2
 )
 

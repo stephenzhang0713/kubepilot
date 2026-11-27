@@ -6,12 +6,16 @@ KubePilot is a local Kubernetes troubleshooting assistant: inspect cluster resou
 
 ## Quick start
 
-You need Go 1.27, a reachable Kubernetes cluster and local kubeconfig, and an OpenAI-compatible model with tool calling. For example, start Ollama and run `ollama pull qwen2.5:7b`.
+Install the latest published release on macOS or Linux (Intel/AMD or ARM64):
 
 ```sh
-go build -o kubepilot ./cmd/kubepilot
-./kubepilot
+curl -fsSL https://raw.githubusercontent.com/stephenzhang0713/kubepilot/main/scripts/install.sh | sh
+kubepilot
 ```
+
+The installer verifies the release checksum and installs to `~/.local/bin`. Make sure that directory is on your `PATH`, or set `KUBEPILOT_INSTALL_DIR` to another writable directory. This command becomes available after the first release is published. Go is only needed to build from source.
+
+You also need a reachable Kubernetes cluster and local kubeconfig, and an OpenAI-compatible model with tool calling. For example, start Ollama and run `ollama pull qwen2.5:7b`.
 
 Press `5` to configure the model and kubeconfig. KubePilot initially uses the current local kubeconfig context. Press `c` or choose a context in Settings, then press `r` to refresh the cluster inspection. Restart after changing the kubeconfig path before selecting a context from the new file.
 
